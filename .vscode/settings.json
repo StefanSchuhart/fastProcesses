@@ -1,0 +1,44 @@
+{
+    //-------------------------------------------------------
+    // General settings
+    //-------------------------------------------------------
+    "files.autoSave": "afterDelay",
+    "files.autoSaveDelay":1000,
+
+    //-------------------------------------------------------
+    // Python settings
+    //-------------------------------------------------------
+    "[python]": {
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.fixAll": "never",
+            "source.organizeImports": "explicit"
+        },
+        "editor.defaultFormatter": "charliermarsh.ruff",
+    },
+
+    "ruff.importStrategy": "fromEnvironment", // prefer ruff from environment, fallback to bundled...
+
+    //-------------------------------------------------------
+    // Set fileroot for Jupyter Notebooks.
+    //-------------------------------------------------------
+    // Setting this to `"${workspaceFolder}"` ensures comatibility
+    // between *.ipynb und *.py files when using relative paths
+    "jupyter.notebookFileRoot": "${workspaceFolder}",
+    
+    //-----------------------
+    // CodeSpell related stuff
+    //-----------------------
+    "cSpell.enabled": false,
+    "cSpell.language": "en,de-DE",
+    "cSpell.words": [
+        "calweek",
+        "calweeks",
+        "creatordate",
+        "mobimon",
+        "tagname",
+        "timeseries",
+        "venv"
+    ],
+   
+}
