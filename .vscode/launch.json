@@ -3,14 +3,47 @@
     // Hover to view descriptions of existing attributes.
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
+    "compounds": [
+        {
+            "name": "api+worker",
+            "configurations": ["Api", "Worker"]
+        }
+    ],
     "configurations": [
         {
-            "name": "Python Debugger: Current File",
+            "name": "Api",
             "type": "debugpy",
             "request": "launch",
-            "program": "${file}",
-            "console": "integratedTerminal",
+            "module": "uvicorn",
+            "args": [
+                "examples.run_example:app",
+                "--reload",
+                "--host", "0.0.0.0",
+                "--port", "8000"
+            ],
+            "jinja": true,
+            "envFile": "${workspaceFolder}/.env",
             "justMyCode": false
+        },
+        {
+            "name": "Worker",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "celery",
+            "console": "integratedTerminal",
+            "args": [
+                "-A",
+                "fastprocesses.worker.celery_app",
+                "worker",
+                "--loglevel=debug",
+                "--pool",
+                "solo"
+            ],
+            "jinja": true,
+            "envFile": "${workspaceFolder}/.env",
+            "justMyCode": false,
+            "preLaunchTask": "start-redis-container",
+            "postDebugTask": "stop-redis-container"
         }
     ]
 }

@@ -1,0 +1,30 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "start-redis-container",
+            "type": "shell",
+            "command": "docker",
+            "args": [
+                "compose",
+                "-f",
+                "docker-compose-dev.yaml",
+                "up",
+                "-d",
+                "redis",
+            ],
+          },
+          {
+            "label": "stop-redis-container",
+            "type": "shell",
+            "command": "docker",
+            "args": [
+                "compose",
+                "rm",
+                "-s",
+                "redis",
+                "--force"
+            ],
+          }
+    ]
+}
