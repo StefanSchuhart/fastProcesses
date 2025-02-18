@@ -1,16 +1,18 @@
-import redis
 import json
-from typing import Dict, Any, List
-from fastprocesses.core.models import ProcessDescription
-from fastprocesses.core.config import settings
-from fastprocesses.core.base_process import BaseProcess
 from pydoc import locate
+from typing import Any, Dict, List
 
-class ServiceRegistry:
+import redis
+
+from fastprocesses.core.base_process import BaseProcess
+from fastprocesses.core.config import settings
+
+
+class ProcessRegistry:
     """Manages the registration and retrieval of available services (processes)."""
 
     def __init__(self):
-        """Initializes the ServiceRegistry with Redis connection."""
+        """Initializes the ProcessRegistry with Redis connection."""
         self.redis = redis.Redis.from_url(str(settings.redis_cache_url))
         self.registry_key = "service_registry"
 
@@ -71,9 +73,9 @@ class ServiceRegistry:
             raise ValueError(f"Service class {service_info['class_path']} not found!")
         return service_class()
 
-# Global instance of ServiceRegistry
-_global_service_registry = ServiceRegistry()
+# Global instance of ProcessRegistry
+_global_process_registry = ProcessRegistry()
 
-def get_service_registry() -> ServiceRegistry:
-    """Returns the global ServiceRegistry instance."""
-    return _global_service_registry
+def get_process_registry() -> ProcessRegistry:
+    """Returns the global ProcessRegistry instance."""
+    return _global_process_registry

@@ -1,8 +1,11 @@
-from typing import Dict, Any, List
+from typing import Any, Dict, List
+
 from celery.result import AsyncResult
-from fastprocesses.core.models import ProcessResponse, ProcessDescription
-from fastprocesses.services.service_registry import get_service_registry
+
+from fastprocesses.core.models import ProcessDescription, ProcessResponse
+from fastprocesses.services.service_registry import get_process_registry
 from fastprocesses.worker.celery_app import celery_app
+
 
 class ProcessManager:
     """Manages processes, including execution, status checking, and job management."""
@@ -10,7 +13,7 @@ class ProcessManager:
     def __init__(self):
         """Initializes the ProcessManager with Celery app and service registry."""
         self.celery_app = celery_app
-        self.service_registry = get_service_registry()
+        self.service_registry = get_process_registry()
 
     def get_available_processes(self) -> List[ProcessDescription]:
         """
