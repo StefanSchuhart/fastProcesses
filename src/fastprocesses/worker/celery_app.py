@@ -1,9 +1,10 @@
 # worker/celery_app.py
+import asyncio
 from typing import Any, Dict
 from celery import Celery
 
 from fastprocesses.core.config import settings
-from fastprocesses.services.service_registry import ServiceRegistry
+from fastprocesses.services.service_registry import get_service_registry
 
 celery_app = Celery(
     "ogc_processes",
@@ -12,8 +13,11 @@ celery_app = Celery(
     include=["fastprocesses.worker.celery_app"]  # Ensure the module is included
 )
 
-@celery_app.task
+@celery_app.task(name="execute_process")
 def execute_process(process_id: str, data: Dict[str, Any]):
-    service = ServiceRegistry().get_service(process_id)
-    result = service.execute(data)
+    service = get_service_registry().get_service(process_id)
+    if asyncio.iscoroutinefunction(service.execute):
+        result = asyncio.run(service.execute(data))
+    else:
+        result = service.execute(data)
     return result
