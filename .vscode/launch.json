@@ -43,7 +43,8 @@
             "envFile": "${workspaceFolder}/.env",
             "justMyCode": false,
             "preLaunchTask": "start-redis-container",
-            "postDebugTask": "stop-redis-container"
+            "postDebugTask": "stop-redis-container",
+            "autoReload": {"enable": true}
         }
     ]
 }
