@@ -1,6 +1,8 @@
 from fastprocesses.core.base_process import BaseProcess
+from fastprocesses.services.service_registry import register_process
 from typing import Dict, Any
 
+@register_process("simple_process")
 class SimpleProcess(BaseProcess):
     def get_description(self) -> Dict[str, Any]:
         return {
@@ -8,6 +10,12 @@ class SimpleProcess(BaseProcess):
             "title": "Simple Process",
             "version": "1.0.0",
             "description": "A simple example process",
+            "outputTransmission": [
+                "value"
+            ],
+            "jobControlOptions": [
+                "async-execute"
+            ],
             "inputs": {
                 "input_text": {
                     "title": "Input Text",
