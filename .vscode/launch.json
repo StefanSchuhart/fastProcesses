@@ -29,12 +29,11 @@
             "name": "Worker",
             "type": "debugpy",
             "request": "launch",
-            "module": "celery",
+            "module": "poetry",
             "console": "integratedTerminal",
             "args": [
-                "-A",
-                "fastprocesses.worker.celery_app",
-                "worker",
+                "run",
+                "start-celery-worker",
                 "--loglevel=debug",
                 "--pool",
                 "solo"
