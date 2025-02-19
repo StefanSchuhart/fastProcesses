@@ -17,6 +17,7 @@ fastprocesses is a Python library that provides a simple and efficient way to cr
 - **Extensibility**: Easily extendable to add custom processes and services.
 - **Redis Integration**: Built-in support for Redis as a message broker and result backend.
 - **Command-Line Utilities**: Provides utilities for starting the FastAPI server and Celery worker.
+- **Logging**: Uses `loguru` for modern and easy-to-configure logging with log rotation.
 
 ### Usage
 
@@ -79,6 +80,15 @@ fastprocesses is a Python library that provides a simple and efficient way to cr
 
     ```sh
     poetry run start-celery-worker --concurrency=4
+    ```
+
+4. **Setup Logging**: The library uses `loguru` for logging. Logs are written to both stderr and a file with rotation.
+
+    ```python
+    from fastprocesses.core.logging import logger
+
+    logger.info("This is an info message.")
+    logger.error("This is an error message.")
     ```
 
 ### Version Notes

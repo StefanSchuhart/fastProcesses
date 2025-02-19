@@ -5,6 +5,7 @@ from typing import Any, Dict
 from celery import Celery
 
 from fastprocesses.core.config import settings
+from fastprocesses.core.logging import logger
 from fastprocesses.services.service_registry import get_process_registry
 
 celery_app = Celery(
@@ -16,9 +17,15 @@ celery_app = Celery(
 
 @celery_app.task(name="execute_process")
 def execute_process(process_id: str, data: Dict[str, Any]):
-    service = get_process_registry().get_service(process_id)
-    if asyncio.iscoroutinefunction(service.execute):
-        result = asyncio.run(service.execute(data))
-    else:
-        result = service.execute(data)
-    return result
+    logger.info(f"Executing process {process_id} with data {data}")
+    try:
+        service = get_process_registry().get_service(process_id)
+        if asyncio.iscoroutinefunction(service.execute):
+            result = asyncio.run(service.execute(data))
+        else:
+            result = service.execute(data)
+        logger.info(f"Process {process_id} executed successfully with result {result}")
+        return result
+    except Exception as e:
+        logger.error(f"Error executing process {process_id}: {e}")
+        raise

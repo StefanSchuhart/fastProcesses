@@ -7,6 +7,7 @@ import redis
 
 from fastprocesses.core.base_process import BaseProcess
 from fastprocesses.core.config import settings
+from fastprocesses.core.logging import logger
 
 
 class ProcessRegistry:
@@ -25,6 +26,7 @@ class ProcessRegistry:
             process_id (str): The ID of the process.
             service (BaseProcess): The service object.
         """
+        logger.info(f"Registering service with ID: {process_id}")
         service_data = {
             "description": service.get_description(),
             "class_path": f"{service.__module__}.{service.__class__.__name__}"
@@ -38,6 +40,7 @@ class ProcessRegistry:
         Returns:
             List[str]: A list of service IDs.
         """
+        logger.debug("Retrieving all registered service IDs")
         return [key.decode('utf-8') for key in self.redis.hkeys(self.registry_key)]
 
     def has_service(self, process_id: str) -> bool:
@@ -50,6 +53,7 @@ class ProcessRegistry:
         Returns:
             bool: True if the service is registered, False otherwise.
         """
+        logger.debug(f"Checking if service with ID {process_id} is registered")
         return self.redis.hexists(self.registry_key, process_id)
 
     def get_service(self, process_id: str) -> BaseProcess:
@@ -65,12 +69,15 @@ class ProcessRegistry:
         Raises:
             ValueError: If the service is not found.
         """
+        logger.info(f"Retrieving service with ID: {process_id}")
         service_data = self.redis.hget(self.registry_key, process_id)
         if not service_data:
+            logger.error(f"Service {process_id} not found!")
             raise ValueError(f"Service {process_id} not found!")
         service_info = json.loads(service_data)
         service_class = locate(service_info["class_path"])
         if not service_class:
+            logger.error(f"Service class {service_info['class_path']} not found!")
             raise ValueError(f"Service class {service_info['class_path']} not found!")
         return service_class()
 
