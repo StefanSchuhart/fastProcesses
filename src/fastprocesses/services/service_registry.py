@@ -1,3 +1,4 @@
+# src/fastprocesses/services/service_registry.py
 import json
 from pydoc import locate
 from typing import Any, Dict, List
@@ -79,3 +80,10 @@ _global_process_registry = ProcessRegistry()
 def get_process_registry() -> ProcessRegistry:
     """Returns the global ProcessRegistry instance."""
     return _global_process_registry
+
+def register_process(process_id: str):
+    """Decorator to register a process implicitly."""
+    def decorator(cls):
+        get_process_registry().register_service(process_id, cls())
+        return cls
+    return decorator
