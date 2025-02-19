@@ -68,7 +68,7 @@ exclude = [
 
 [tool.poetry]
 name = "fastprocesses"
-version = "0.1.2"
+version = "0.1.3"
 description = "A library to create a FastAPI-based  OGC API Processes wrapper around existing projects."
 authors = ["Stefan Schuhart <stefan.schuhart@gv.hamburg.de>"]
 readme = "README.md"
