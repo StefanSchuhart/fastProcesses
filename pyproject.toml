@@ -99,6 +99,9 @@ jupyter-book = "^0.15"
 sphinx-autoapi = "^2"
 sphinxcontrib-autoyaml = "^1.1"
 
+[tool.poetry.scripts]
+start-celery-worker = "fastprocesses.celery_worker:main"
+
 [tool.black]
 line-length = 88
 exclude = "tests/fixtures"
