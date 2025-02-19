@@ -8,6 +8,16 @@ A library to create a FastAPI-based OGC API Processes wrapper around existing pr
 
 fastprocesses is a Python library that provides a simple and efficient way to create OGC API Processes using FastAPI. It allows you to define processes, register them, and expose them through a FastAPI application with minimal effort.
 
+### Features
+
+- **Ease of Use**: Simplifies the creation and registration of OGC API Processes.
+- **FastAPI Integration**: Leverages FastAPI for building high-performance APIs.
+- **Asynchronous Support**: Supports asynchronous process execution using Celery.
+- **Configuration Management**: Uses Pydantic for robust configuration management.
+- **Extensibility**: Easily extendable to add custom processes and services.
+- **Redis Integration**: Built-in support for Redis as a message broker and result backend.
+- **Command-Line Utilities**: Provides utilities for starting the FastAPI server and Celery worker.
+
 ### Usage
 
 1. **Define a Process**: Create a new process by subclassing `BaseProcess` and using the `@register_process` decorator.
