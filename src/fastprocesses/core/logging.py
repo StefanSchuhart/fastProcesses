@@ -59,9 +59,10 @@ logger.add(
 )
 
 # Info logs to stdout
+# TODO read loglevel from settings!
 logger.add(
     sys.stdout, 
-    level="INFO", 
+    level="DEBUG", 
     format="{time:YYYY-MM-DD at HH:mm:ss} | {level} | {message}",
     backtrace=True,
     diagnose=True,
