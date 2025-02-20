@@ -1,21 +1,19 @@
 # worker/celery_app.py
 import asyncio
+from celery import signals, Task
 from typing import Any, Dict
 
-from celery import Celery
-
-from fastprocesses.core.config import settings
 from fastprocesses.core.logging import logger
+from fastprocesses.common import celery_app, redis_cache
 from fastprocesses.services.service_registry import get_process_registry
 
-celery_app = Celery(
-    "ogc_processes",
-    broker=str(settings.celery_broker_url),
-    backend=str(settings.celery_result_backend),
-    include=["fastprocesses.worker.celery_app"]  # Ensure the module is included
-)
+class CacheResultTask(Task):
+    def on_success(self, retval, task_id, args, kwargs):
+        key = args[0]["celery_key"]
+        redis_cache.put(key=key, value=retval)
+        logger.info(f"Saved result with key {key} to cache.")
 
-@celery_app.task(name="execute_process")
+@celery_app.task(name="execute_process", base=CacheResultTask)
 def execute_process(process_id: str, data: Dict[str, Any]):
     logger.info(f"Executing process {process_id} with data {data}")
     try:
@@ -29,3 +27,8 @@ def execute_process(process_id: str, data: Dict[str, Any]):
     except Exception as e:
         logger.error(f"Error executing process {process_id}: {e}")
         raise
+
+@celery_app.task(name="find_result_in_cache")
+def find_result_in_cache(celery_key: str) -> dict | None:
+    # Returns result dict or None
+    return redis_cache.get(key=celery_key)
