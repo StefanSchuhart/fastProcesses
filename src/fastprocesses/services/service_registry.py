@@ -31,6 +31,7 @@ class ProcessRegistry:
             "description": service.get_description(),
             "class_path": f"{service.__module__}.{service.__class__.__name__}"
         }
+        logger.debug(f"Service data to be registered: {service_data}")
         self.redis.hset(self.registry_key, process_id, json.dumps(service_data))
 
     def get_service_ids(self) -> List[str]:
