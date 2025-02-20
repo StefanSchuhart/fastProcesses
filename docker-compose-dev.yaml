@@ -18,6 +18,6 @@ services:
     expose: 
       - ${REDIS_PORT}
     restart: "unless-stopped"
-    # command: dragonfly --requirepass ${REDIS_PASSWORD} # --appendonly yes
+    command: dragonfly --requirepass "" # --appendonly yes
     networks: 
       - dev
