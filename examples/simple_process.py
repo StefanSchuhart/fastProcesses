@@ -42,6 +42,6 @@ class SimpleProcess(BaseProcess):
         return "input_text" in inputs
 
     async def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        input_text = inputs["input_text"]
+        input_text = inputs["inputs"]["input_text"]
         output_text = input_text.upper()
         return {"output_text": output_text}
