@@ -38,8 +38,8 @@ class SimpleProcess(BaseProcess):
             }
         }
 
-    def validate_inputs(self, inputs: Dict[str, Any]) -> bool:
-        return "input_text" in inputs
+    # def validate_inputs(self, inputs: Dict[str, Any]) -> bool:
+    #     return "input_text" in inputs
 
     async def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         input_text = inputs["inputs"]["input_text"]
