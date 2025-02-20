@@ -1,7 +1,8 @@
+import hashlib
+import json
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
-
 
 class Link(BaseModel):
   href: str
@@ -26,6 +27,14 @@ class ProcessDescription(BaseModel):
 
 class ProcessInputs(BaseModel):
   inputs: Dict[str, Any]
+
+class CalculationTask(ProcessInputs):
+    def _hash_dict(self):
+       return hashlib.sha256(json.dumps(self.inputs, sort_keys=True).encode()).hexdigest()
+
+    @property
+    def celery_key(self) -> str:
+        return self._hash_dict()
 
 class ProcessResponse(BaseModel):
   status: str
