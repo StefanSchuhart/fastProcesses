@@ -23,7 +23,8 @@
             ],
             "jinja": true,
             "envFile": "${workspaceFolder}/.env",
-            "justMyCode": false
+            "justMyCode": false,
+            "autoReload": {"enable": true}
         },
         {
             "name": "Worker",
