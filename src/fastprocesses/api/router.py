@@ -6,7 +6,7 @@ from fastprocesses.core.models import (
     Conformance,
     Landing,
     Link,
-    ProcessInputs,
+    ProcessExecRequestBody,
     ProcessList,
 )
 
@@ -63,10 +63,10 @@ def get_router(process_manager: ProcessManager) -> APIRouter:
             raise HTTPException(status_code=404, detail=str(e))
 
     @router.post("/processes/{process_id}/execution")
-    async def execute_process(process_id: str, request: ProcessInputs):
+    async def execute_process(process_id: str, request: ProcessExecRequestBody):
         logger.debug(f"Execute process endpoint accessed for process ID: {process_id}")
         try:
-            return process_manager.execute_process(process_id, request.inputs)
+            return process_manager.execute_process(process_id, request)
         except ValueError as e:
             logger.error(f"Process {process_id} not found: {e}")
             raise HTTPException(status_code=404, detail=str(e))

@@ -1,8 +1,9 @@
 import hashlib
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, computed_field
+
 
 class Link(BaseModel):
   href: str
@@ -25,18 +26,22 @@ class ProcessDescription(BaseModel):
   inputs: Dict[str, Dict[str, Any]]
   outputs: Dict[str, Dict[str, Any]]
 
-class ProcessInputs(BaseModel):
+class ProcessExecRequestBody(BaseModel):
   inputs: Dict[str, Any]
+  outputs: Dict[str, Any] = {}
+  response: Literal["document", "raw"] = "raw"
 
-class CalculationTask(ProcessInputs):
+class CalculationTask(BaseModel):
+    inputs: Dict[str, Any]
+
     def _hash_dict(self):
        return hashlib.sha256(json.dumps(self.inputs, sort_keys=True).encode()).hexdigest()
 
-    @property
+    @computed_field
     def celery_key(self) -> str:
         return self._hash_dict()
 
-class ProcessResponse(BaseModel):
+class ProcessExecResponse(BaseModel):
   status: str
   jobID: str
   type: str = "process"

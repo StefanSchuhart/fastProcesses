@@ -10,8 +10,8 @@ from fastprocesses.core.logging import logger
 from fastprocesses.core.models import (
     CalculationTask,
     ProcessDescription,
+    ProcessExecRequestBody,
     ProcessExecResponse,
-    ProcessInputs,
 )
 from fastprocesses.services.service_registry import get_process_registry
 from fastprocesses.worker.celery_app import celery_app
@@ -60,14 +60,14 @@ class ProcessManager:
         service = self.service_registry.get_service(process_id)
         return service.get_description()
 
-    def execute_process(self, process_id: str, data: ProcessInputs) -> ProcessExecResponse:
+    def execute_process(self, process_id: str, data: ProcessExecRequestBody) -> ProcessExecResponse:
         logger.info(f"Executing process ID: {process_id}")
         if not self.service_registry.has_service(process_id):
             logger.error(f"Process {process_id} not found!")
             raise ValueError(f"Process {process_id} not found!")
 
         # Generate a hash of the inputs
-        calculation_task = CalculationTask(**data.dict())
+        calculation_task = CalculationTask(inputs=data.inputs)
 
         # Check cache using Celery task
         cache_check = self.celery_app.send_task(
