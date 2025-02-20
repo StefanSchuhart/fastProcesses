@@ -4,10 +4,15 @@ from typing import Any, Dict, List
 
 from celery.result import AsyncResult
 
-from fastprocesses.core.cache import Cache
+from fastprocesses.common import redis_cache
 from fastprocesses.core.config import settings
 from fastprocesses.core.logging import logger
-from fastprocesses.core.models import ProcessDescription, ProcessResponse
+from fastprocesses.core.models import (
+    CalculationTask,
+    ProcessDescription,
+    ProcessExecResponse,
+    ProcessInputs,
+)
 from fastprocesses.services.service_registry import get_process_registry
 from fastprocesses.worker.celery_app import celery_app
 
@@ -19,7 +24,7 @@ class ProcessManager:
         """Initializes the ProcessManager with Celery app and service registry."""
         self.celery_app = celery_app
         self.service_registry = get_process_registry()
-        self.cache = Cache(key_prefix="process_results", ttl_days=7)
+        self.cache = redis_cache
 
     def get_available_processes(self) -> List[ProcessDescription]:
         logger.info("Retrieving available processes")
@@ -55,44 +60,41 @@ class ProcessManager:
         service = self.service_registry.get_service(process_id)
         return service.get_description()
 
-    def execute_process(self, process_id: str, data: Dict[str, Any]) -> ProcessResponse:
+    def execute_process(self, process_id: str, data: ProcessInputs) -> ProcessExecResponse:
         logger.info(f"Executing process ID: {process_id}")
-        """
-        Executes a process by enqueuing it in the Celery queue.
-
-        Args:
-            process_id (str): The ID of the process.
-            data (Dict[str, Any]): The data to be processed.
-
-        Returns:
-            ProcessResponse: The response containing the job status and ID.
-
-        Raises:
-            ValueError: If the process is not found.
-        """
         if not self.service_registry.has_service(process_id):
             logger.error(f"Process {process_id} not found!")
             raise ValueError(f"Process {process_id} not found!")
 
         # Generate a hash of the inputs
-        input_hash = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+        calculation_task = CalculationTask(**data.dict())
 
-        # Check if results are already cached in Redis
-        cached_result = self.cache.get(key=input_hash)
-        if cached_result:
+        # Check cache using Celery task
+        cache_check = self.celery_app.send_task(
+            'check_cache',
+            args=[calculation_task.model_dump()]
+        )
+        
+        # Wait for cache check result (this is fast as it's just a Redis lookup)
+        cache_status = cache_check.get(timeout=1)
+        
+        if cache_status["status"] == "HIT":
             logger.info(f"Returning cached result for process ID: {process_id}")
-            # Create a Celery task to fetch the cached result
-            task = self.celery_app.send_task('find_result_in_cache', args=[input_hash])
-            return ProcessResponse(status="SUCCESS", jobID=task.id, type="process")
+            # Create a task to fetch the cached result
+            task = self.celery_app.send_task(
+                'find_result_in_cache',
+                args=[calculation_task.celery_key]
+            )
+            return ProcessExecResponse(status="successful", jobID=task.id, type="process")
 
-        # Enqueue the task in Celery
-        task = self.celery_app.send_task('execute_process', args=[process_id, data])
-
-        # Store the task ID in Redis with the input hash as the key
-        self.cache.put(key=input_hash, value={"task_id": task.id})
+        # No cached result, execute the process
+        task = self.celery_app.send_task(
+            'execute_process',
+            args=[process_id, calculation_task.model_dump()]
+        )
 
         logger.info(f"Enqueued process ID: {process_id} with task ID: {task.id}")
-        return ProcessResponse(status="ACCEPTED", jobID=task.id, type="process")
+        return ProcessExecResponse(status="accepted", jobID=task.id, type="process")
 
     def get_job_status(self, job_id: str) -> Dict[str, Any]:
         logger.debug(f"Retrieving status for job ID: {job_id}")
