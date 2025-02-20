@@ -66,6 +66,16 @@ class ProcessManager:
             logger.error(f"Process {process_id} not found!")
             raise ValueError(f"Process {process_id} not found!")
 
+        # Get the service instance
+        service = self.service_registry.get_service(process_id)
+
+        try:
+            # Validate inputs before processing
+            service.validate_inputs(data.inputs)
+        except ValueError as e:
+            logger.error(f"Input validation failed for process {process_id}: {str(e)}")
+            raise ValueError(f"Input validation failed: {str(e)}")
+    
         # Generate a hash of the inputs
         calculation_task = CalculationTask(inputs=data.inputs)
 
