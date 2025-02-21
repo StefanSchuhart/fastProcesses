@@ -5,7 +5,7 @@ from typing import Any, Dict
 
 from fastprocesses.core.logging import logger
 from fastprocesses.common import celery_app, redis_cache
-from fastprocesses.services.service_registry import get_process_registry
+from fastprocesses.processes.process_registry import get_process_registry
 from fastprocesses.core.models import CalculationTask
 
 class CacheResultTask(Task):

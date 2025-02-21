@@ -13,7 +13,7 @@ from fastprocesses.core.models import (
     ProcessExecRequestBody,
     ProcessExecResponse,
 )
-from fastprocesses.services.service_registry import get_process_registry
+from fastprocesses.processes.process_registry import get_process_registry
 from fastprocesses.worker.celery_app import celery_app
 
 

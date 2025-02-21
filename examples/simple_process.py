@@ -1,5 +1,5 @@
 from fastprocesses.core.base_process import BaseProcess
-from fastprocesses.services.service_registry import register_process
+from fastprocesses.processes.process_registry import register_process
 from typing import Dict, Any
 
 @register_process("simple_process")
