@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, Dict, List
 
@@ -7,6 +8,7 @@ from fastprocesses.common import redis_cache
 from fastprocesses.core.logging import logger
 from fastprocesses.core.models import (
     CalculationTask,
+    ExecutionMode,
     ProcessDescription,
     ProcessExecRequestBody,
     ProcessExecResponse,
@@ -14,6 +16,63 @@ from fastprocesses.core.models import (
 from fastprocesses.processes.process_registry import get_process_registry
 from fastprocesses.worker.celery_app import celery_app
 
+class ExecutionStrategy(ABC):
+    """Base class for execution strategies."""
+    
+    def __init__(self, process_manager):
+        self.process_manager = process_manager
+
+    @abstractmethod
+    def execute(self, process_id: str, calculation_task: CalculationTask) -> ProcessExecResponse:
+        pass
+
+class AsyncExecutionStrategy(ExecutionStrategy):
+    """Strategy for asynchronous execution."""
+    
+    def execute(self, process_id: str, calculation_task: CalculationTask) -> ProcessExecResponse:
+        task = self.process_manager.celery_app.send_task(
+            'execute_process',
+            args=[process_id, calculation_task.model_dump()]
+        )
+        
+        job_info = {
+            "status": "accepted",
+            "type": "process",
+            "process_id": process_id,
+            "created": datetime.utcnow().isoformat(),
+            "updated": datetime.utcnow().isoformat(),
+            "progress": 0
+        }
+        self.process_manager.cache.put(f"job:{task.id}", job_info)
+        
+        return ProcessExecResponse(status="accepted", jobID=task.id, type="process")
+
+class SyncExecutionStrategy(ExecutionStrategy):
+    """Strategy for synchronous execution."""
+    
+    def execute(self, process_id: str, calculation_task: CalculationTask) -> ProcessExecResponse:
+        service = self.process_manager.service_registry.get_service(process_id)
+        result = service.execute(calculation_task.inputs)
+        
+        task = self.process_manager.celery_app.send_task(
+            'store_result',
+            args=[process_id, calculation_task.celery_key, result]
+        )
+        
+        job_info = {
+            "status": "successful",
+            "type": "process",
+            "process_id": process_id,
+            "created": datetime.utcnow().isoformat(),
+            "started": datetime.utcnow().isoformat(),
+            "finished": datetime.utcnow().isoformat(),
+            "updated": datetime.utcnow().isoformat(),
+            "progress": 100,
+            "result": result
+        }
+        self.process_manager.cache.put(f"job:{task.id}", job_info)
+        
+        return ProcessExecResponse(status="successful", jobID=task.id, type="process", value=result)
 
 class ProcessManager:
     """Manages processes, including execution, status checking, and job management."""
@@ -59,76 +118,38 @@ class ProcessManager:
         return service.get_description()
 
     def execute_process(self, process_id: str, data: ProcessExecRequestBody) -> ProcessExecResponse:
+        """Execute a process either synchronously or asynchronously."""
         logger.info(f"Executing process ID: {process_id}")
+        
+        # Validate process exists
         if not self.service_registry.has_service(process_id):
             logger.error(f"Process {process_id} not found!")
             raise ValueError(f"Process {process_id} not found!")
 
-        # Get the service instance
+        # Get service and validate inputs
         service = self.service_registry.get_service(process_id)
-
         try:
-            # Validate inputs before processing
             service.validate_inputs(data.inputs)
         except ValueError as e:
             logger.error(f"Input validation failed for process {process_id}: {str(e)}")
             raise ValueError(f"Input validation failed: {str(e)}")
 
-        # Generate a hash of the inputs
+        # Create calculation task
         calculation_task = CalculationTask(inputs=data.inputs)
-
-        # Check cache using Celery task
-        cache_check = self.celery_app.send_task(
-            'check_cache',
-            args=[calculation_task.model_dump()]
-        )
         
-        # Wait for cache check result (this is fast as it's just a Redis lookup)
-        cache_status = cache_check.get(timeout=1)
+        # Check cache first
+        cached_result = self._check_cache(calculation_task)
+        if cached_result:
+            return cached_result
         
-        if cache_status["status"] == "HIT":
-            logger.info(f"Returning cached result for process ID: {process_id}")
-            # Create a task to fetch the cached result
-            task = self.celery_app.send_task(
-                'find_result_in_cache',
-                args=[calculation_task.celery_key]
-            )
-            
-            # Store job info for cache hit
-            job_info = {
-                "status": "successful",
-                "type": "process",
-                "process_id": process_id,
-                "created": datetime.utcnow().isoformat(),
-                "started": datetime.utcnow().isoformat(),
-                "finished": datetime.utcnow().isoformat(),
-                "updated": datetime.utcnow().isoformat(),
-                "progress": 100,
-                "message": "Result retrieved from cache"
-            }
-            self.cache.put(f"job:{task.id}", job_info)
-            
-            return ProcessExecResponse(status="successful", jobID=task.id, type="process")
-
-        # No cached result, execute the process
-        task = self.celery_app.send_task(
-            'execute_process',
-            args=[process_id, calculation_task.model_dump()]
-        )
-
-        # Store initial job info for new process execution
-        job_info = {
-            "status": "accepted",
-            "type": "process",
-            "process_id": process_id,
-            "created": datetime.utcnow().isoformat(),
-            "updated": datetime.utcnow().isoformat(),
-            "progress": 0
+        # Select execution strategy based on mode
+        execution_strategies = {
+            ExecutionMode.SYNC: SyncExecutionStrategy(self),
+            ExecutionMode.ASYNC: AsyncExecutionStrategy(self)
         }
-        self.cache.put(f"job:{task.id}", job_info)
-
-        logger.info(f"Enqueued process ID: {process_id} with task ID: {task.id}")
-        return ProcessExecResponse(status="accepted", jobID=task.id, type="process")
+        
+        strategy = execution_strategies[data.mode]
+        return strategy.execute(process_id, calculation_task)
 
     def get_job_status(self, job_id: str) -> Dict[str, Any]:
         """
@@ -257,3 +278,33 @@ class ProcessManager:
                 logger.error(f"Error retrieving job {job_key}: {e}")
 
         return jobs
+
+    def _check_cache(self, calculation_task: CalculationTask) -> ProcessExecResponse | None:
+        """Check if result exists in cache and return it if found."""
+        cache_check = self.celery_app.send_task(
+            'check_cache',
+            args=[calculation_task.model_dump()]
+        )
+        
+        cache_status = cache_check.get(timeout=1)
+        if cache_status["status"] != "HIT":
+            return None
+            
+        task = self.celery_app.send_task(
+            'find_result_in_cache',
+            args=[calculation_task.celery_key]
+        )
+        
+        job_info = {
+            "status": "successful",
+            "type": "process",
+            "created": datetime.utcnow().isoformat(),
+            "started": datetime.utcnow().isoformat(),
+            "finished": datetime.utcnow().isoformat(),
+            "updated": datetime.utcnow().isoformat(),
+            "progress": 100,
+            "message": "Result retrieved from cache"
+        }
+        self.cache.put(f"job:{task.id}", job_info)
+        
+        return ProcessExecResponse(status="successful", jobID=task.id, type="process")

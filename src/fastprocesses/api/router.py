@@ -1,9 +1,11 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response, status
+from fastapi.responses import JSONResponse
 
 from fastprocesses.api.manager import ProcessManager
 from fastprocesses.core.logging import logger
 from fastprocesses.core.models import (
     Conformance,
+    ExecutionMode,
     Landing,
     Link,
     ProcessExecRequestBody,
@@ -31,9 +33,9 @@ def get_router(process_manager: ProcessManager) -> APIRouter:
         logger.debug("Conformance endpoint accessed")
         return Conformance(
             conformsTo=[
-                "http://www.opengis.net/spec/ogcapi-processes/1.0/conf/core",
-                "http://www.opengis.net/spec/ogcapi-processes/1.0/conf/json"
-                "http://www.opengis.net/spec/ogcapi-processes-1/1.0/req/job-list"
+                "http://www.opengis.net/spec/ogcapi-processes-1/1.0/conf/core",
+                "http://www.opengis.net/spec/ogcapi-processes-1/1.0/conf/json"
+                "http://www.opengis.net/spec/ogcapi-processes-1/1.0/conf/job-list"
             ]
         )
 
@@ -63,24 +65,51 @@ def get_router(process_manager: ProcessManager) -> APIRouter:
             raise HTTPException(status_code=404, detail=str(e))
 
     @router.post("/processes/{process_id}/execution")
-    async def execute_process(process_id: str, request: ProcessExecRequestBody):
+    async def execute_process(
+        process_id: str,
+        request: ProcessExecRequestBody,
+        response: Response
+    ) -> JSONResponse:
         logger.debug(f"Execute process endpoint accessed for process ID: {process_id}")
         try:
-            return process_manager.execute_process(process_id, request)
+            result = process_manager.execute_process(process_id, request)
+            
+            # Set response status code based on execution mode
+            if request.mode == ExecutionMode.ASYNC:
+                response.status_code = status.HTTP_201_CREATED
+                # Add Location header for async execution
+                response.headers["Location"] = f"/jobs/{result.jobID}"
+            else:
+                # For sync execution with results
+                if result.value:
+                    response.status_code = status.HTTP_200_OK
+                # For sync execution without results
+                else:
+                    response.status_code = status.HTTP_204_NO_CONTENT
+            
+            return result
         except ValueError as e:
             error_message = str(e)
             if "Input validation failed" in error_message:
                 logger.error(f"Input validation error for process {process_id}: {error_message}")
                 raise HTTPException(
-                    status_code=400,
+                    status_code=status.HTTP_400_BAD_REQUEST,
                     detail={
-                        "error": "Input validation failed",
+                        "type": "process",
+                        "error": "InvalidParameterValue",
                         "message": error_message,
                         "process_id": process_id
                     }
                 )
             logger.error(f"Process {process_id} not found: {error_message}")
-            raise HTTPException(status_code=404, detail=error_message)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "type": "process",
+                    "error": "NotFound",
+                    "message": error_message
+                }
+            )
 
     @router.get("/jobs")
     async def list_jobs():

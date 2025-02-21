@@ -1,3 +1,4 @@
+from enum import Enum
 import hashlib
 import json
 from datetime import datetime
@@ -27,10 +28,14 @@ class ProcessDescription(BaseModel):
   inputs: Dict[str, Dict[str, Any]]
   outputs: Dict[str, Dict[str, Any]]
 
+class ExecutionMode(str, Enum):
+    SYNC = "sync"
+    ASYNC = "async"
+
 class ProcessExecRequestBody(BaseModel):
-  inputs: Dict[str, Any]
-  outputs: Dict[str, Any] = {}
-  response: Literal["document", "raw"] = "raw"
+    inputs: Dict[str, Any]
+    mode: Optional[ExecutionMode] = ExecutionMode.ASYNC
+    response: Optional[str] = "document"
 
 class CalculationTask(BaseModel):
     inputs: Dict[str, Any]
