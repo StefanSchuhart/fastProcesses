@@ -2,17 +2,42 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any
 from pydantic import BaseModel
 
+from fastprocesses.core.models import ProcessDescription
+
 class BaseProcess(ABC):
     @abstractmethod
-    def get_description(self) -> Dict[str, Any]:
-        """Return OGC API Process description"""
+    def get_description(self) -> ProcessDescription:
+        """
+        Returns the OGC API Process description.
+        
+        The description must include:
+        - Process ID and metadata (title, description, version)
+        - Input definitions with schemas
+        - Output definitions with schemas
+        - Job control options (sync/async execution)
+        - Output transmission methods
+        
+        Returns:
+            ProcessDescription: Complete process description following OGC API standard
+        """
         pass
     
     @abstractmethod
     async def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute the process"""
+        """
+        Executes the process with given inputs.
+        
+        Args:
+            inputs (Dict[str, Any]): Input parameters matching the process description
+            
+        Returns:
+            Dict[str, Any]: Output values matching the process description
+            
+        Raises:
+            ValueError: If inputs are invalid
+        """
         pass
-    
+
     def validate_inputs(self, inputs: Dict[str, Any]) -> bool:
         """
         Validates the input data against the process description.

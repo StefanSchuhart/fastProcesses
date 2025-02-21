@@ -20,13 +20,51 @@ class Landing(BaseModel):
 class Conformance(BaseModel):
   conformsTo: List[str]
 
+class ProcessJobControlOptions(str, Enum):
+    SYNC_EXECUTE = "sync-execute"
+    ASYNC_EXECUTE = "async-execute"
+    DISMISS = "dismiss"
+
+class ProcessOutputTransmission(str, Enum):
+    VALUE = "value"
+    REFERENCE = "reference"
+
+class Schema(BaseModel):
+    type: str
+    format: Optional[str] = None
+    minimum: Optional[float] = None
+    maximum: Optional[float] = None
+    minLength: Optional[int] = None
+    maxLength: Optional[int] = None
+    pattern: Optional[str] = None
+    enum: Optional[List[Any]] = None
+
+class ProcessInput(BaseModel):
+    title: str
+    description: str
+    schema: Schema
+    minOccurs: Optional[int] = 1
+    maxOccurs: Optional[int] = 1
+    metadata: Optional[Dict[str, Any]] = None
+
+class ProcessOutput(BaseModel):
+    title: str
+    description: str
+    schema: Schema
+    metadata: Optional[Dict[str, Any]] = None
+
 class ProcessDescription(BaseModel):
-  id: str
-  title: str
-  description: str
-  version: str
-  inputs: Dict[str, Dict[str, Any]]
-  outputs: Dict[str, Dict[str, Any]]
+    id: str
+    title: str
+    description: str
+    version: str
+    jobControlOptions: List[ProcessJobControlOptions]
+    outputTransmission: List[ProcessOutputTransmission]
+    inputs: Dict[str, ProcessInput]
+    outputs: Dict[str, ProcessOutput]
+    links: Optional[List[Link]] = None
+    keywords: Optional[List[str]] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 class ExecutionMode(str, Enum):
     SYNC = "sync"
