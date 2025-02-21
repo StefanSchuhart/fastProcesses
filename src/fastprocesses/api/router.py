@@ -33,6 +33,7 @@ def get_router(process_manager: ProcessManager) -> APIRouter:
             conformsTo=[
                 "http://www.opengis.net/spec/ogcapi-processes/1.0/conf/core",
                 "http://www.opengis.net/spec/ogcapi-processes/1.0/conf/json"
+                "http://www.opengis.net/spec/ogcapi-processes-1/1.0/req/job-list"
             ]
         )
 
