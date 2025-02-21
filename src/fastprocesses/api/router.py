@@ -53,6 +53,15 @@ def get_router(process_manager: ProcessManager) -> APIRouter:
             ]
         }
 
+    @router.get("/processes/{process_id}")
+    async def describe_process(process_id: str):
+        logger.debug(f"Describe process endpoint accessed for process ID: {process_id}")
+        try:
+            return process_manager.get_process_description(process_id)
+        except ValueError as e:
+            logger.error(f"Process {process_id} not found: {e}")
+            raise HTTPException(status_code=404, detail=str(e))
+
     @router.post("/processes/{process_id}/execution")
     async def execute_process(process_id: str, request: ProcessExecRequestBody):
         logger.debug(f"Execute process endpoint accessed for process ID: {process_id}")
@@ -72,19 +81,6 @@ def get_router(process_manager: ProcessManager) -> APIRouter:
                 )
             logger.error(f"Process {process_id} not found: {error_message}")
             raise HTTPException(status_code=404, detail=error_message)
-
-    @router.post("/processes/{process_id}/execution")
-    async def execute_process(process_id: str, request: ProcessExecRequestBody):
-        logger.debug(f"Execute process endpoint accessed for process ID: {process_id}")
-        try:
-            return process_manager.execute_process(process_id, request)
-        except ValueError as e:
-            message = str(e)
-            if "Invalid inputs" in message:
-                logger.error(f"Invalid inputs for process {process_id}: {e}")
-                raise HTTPException(status_code=400, detail=message)
-            logger.error(f"Process {process_id} not found: {e}")
-            raise HTTPException(status_code=404, detail=message)
 
     @router.get("/jobs/{job_id}")
     async def get_job_status(job_id: str):
