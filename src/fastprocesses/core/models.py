@@ -1,5 +1,6 @@
 import hashlib
 import json
+from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, computed_field
@@ -55,11 +56,19 @@ class ProcessSummary(BaseModel):
     version: str
     links: Optional[list[Link]] = None
 
+class JobStatusInfo(BaseModel):
+    jobID: str
+    status: str
+    type: str = "process"
+    processID: Optional[str] = None
+    message: Optional[str] = None
+    created: Optional[datetime] = None
+    started: Optional[datetime] = None
+    finished: Optional[datetime] = None
+    updated: Optional[datetime] = None
+    progress: Optional[int] = Field(None, ge=0, le=100)
+    links: Optional[List[Link]] = None
 
-class ProcessList(BaseModel):
-    """
-    The OGC conform ProcessList Model.
-    """
-
-    processes: list[ProcessSummary]
-    links: list[Link]
+class JobList(BaseModel):
+    jobs: List[JobStatusInfo]
+    links: List[Link]

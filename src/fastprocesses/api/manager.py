@@ -1,11 +1,9 @@
-import hashlib
-import json
+from datetime import datetime
 from typing import Any, Dict, List
 
 from celery.result import AsyncResult
 
 from fastprocesses.common import redis_cache
-from fastprocesses.core.config import settings
 from fastprocesses.core.logging import logger
 from fastprocesses.core.models import (
     CalculationTask,
@@ -75,7 +73,7 @@ class ProcessManager:
         except ValueError as e:
             logger.error(f"Input validation failed for process {process_id}: {str(e)}")
             raise ValueError(f"Input validation failed: {str(e)}")
-    
+
         # Generate a hash of the inputs
         calculation_task = CalculationTask(inputs=data.inputs)
 
@@ -95,6 +93,21 @@ class ProcessManager:
                 'find_result_in_cache',
                 args=[calculation_task.celery_key]
             )
+            
+            # Store job info for cache hit
+            job_info = {
+                "status": "successful",
+                "type": "process",
+                "process_id": process_id,
+                "created": datetime.utcnow().isoformat(),
+                "started": datetime.utcnow().isoformat(),
+                "finished": datetime.utcnow().isoformat(),
+                "updated": datetime.utcnow().isoformat(),
+                "progress": 100,
+                "message": "Result retrieved from cache"
+            }
+            self.cache.put(f"job:{task.id}", job_info)
+            
             return ProcessExecResponse(status="successful", jobID=task.id, type="process")
 
         # No cached result, execute the process
@@ -103,11 +116,21 @@ class ProcessManager:
             args=[process_id, calculation_task.model_dump()]
         )
 
+        # Store initial job info for new process execution
+        job_info = {
+            "status": "accepted",
+            "type": "process",
+            "process_id": process_id,
+            "created": datetime.utcnow().isoformat(),
+            "updated": datetime.utcnow().isoformat(),
+            "progress": 0
+        }
+        self.cache.put(f"job:{task.id}", job_info)
+
         logger.info(f"Enqueued process ID: {process_id} with task ID: {task.id}")
         return ProcessExecResponse(status="accepted", jobID=task.id, type="process")
 
     def get_job_status(self, job_id: str) -> Dict[str, Any]:
-        logger.debug(f"Retrieving status for job ID: {job_id}")
         """
         Retrieves the status of a specific job.
 
@@ -120,6 +143,13 @@ class ProcessManager:
         Raises:
             ValueError: If the job is not found.
         """
+        # Check if job exists in Redis first
+        job_info = self.cache.get(f"job:{job_id}")
+        if not job_info:
+            logger.error(f"Job {job_id} not found in cache")
+            raise ValueError(f"Job {job_id} not found")
+
+        # Now check Celery status
         result = AsyncResult(job_id)
         if result.ready():
             if result.successful():
@@ -128,7 +158,6 @@ class ProcessManager:
         return {"status": "running", "type": "process"}
 
     def get_job_result(self, job_id: str) -> Dict[str, Any]:
-        logger.debug(f"Retrieving result for job ID: {job_id}")
         """
         Retrieves the result of a specific job.
 
@@ -141,6 +170,12 @@ class ProcessManager:
         Raises:
             ValueError: If the job is not found.
         """
+        # Check if job exists in Redis first
+        job_info = self.cache.get(f"job:{job_id}")
+        if not job_info:
+            logger.error(f"Job {job_id} not found in cache")
+            raise ValueError(f"Job {job_id} not found")
+
         result = AsyncResult(job_id)
         if result.state == 'PENDING':
             logger.error(f"Result for job ID {job_id} is not ready")
@@ -174,3 +209,51 @@ class ProcessManager:
             raise ValueError("Job not found")
         result.forget()
         return {"status": "dismissed", "message": "Job dismissed"}
+
+    def get_jobs(self) -> List[Dict[str, Any]]:
+        """
+        Retrieves a list of all jobs and their status.
+        
+        Returns:
+            List[Dict[str, Any]]: List of job status information
+        """
+        # Get all job IDs from Redis
+        job_keys = self.cache.keys("job:*")
+        jobs = []
+
+        for job_key in job_keys:
+            try:
+                job_info = self.cache.get(job_key)
+                if job_info:
+                    # Remove "job:" prefix for consistent job ID handling
+                    job_id = job_key.replace("job:", "")
+                    status_info = {
+                        "jobID": job_id,  # Clean job ID without prefix
+                        "status": job_info.get("status", "unknown"),
+                        "type": "process",
+                        "processID": job_info.get("process_id"),
+                        "created": job_info.get("created"),
+                        "started": job_info.get("started"),
+                        "finished": job_info.get("finished"),
+                        "updated": job_info.get("updated"),
+                        "progress": job_info.get("progress"),
+                        "links": [
+                            {
+                                "href": f"/jobs/{job_id}",  # Clean job ID in links
+                                "rel": "self",
+                                "type": "application/json"
+                            },
+                            {
+                                "href": f"/jobs/{job_id}/results",  # Clean job ID in links
+                                "rel": "results",
+                                "type": "application/json"
+                            }
+                        ]
+                    }
+                    if "message" in job_info:
+                        status_info["message"] = job_info["message"]
+                    jobs.append(status_info)
+            except Exception as e:
+                logger.error(f"Error retrieving job {job_key}: {e}")
+
+        return jobs

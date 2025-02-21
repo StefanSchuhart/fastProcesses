@@ -36,3 +36,20 @@ class Cache:
 
     def _make_key(self, key: str) -> str:
         return f"{self._key_prefix}:{key}"
+
+    def keys(self, pattern: str = "*") -> list[str]:
+        """
+        Get all keys matching the pattern.
+        
+        Args:
+            pattern (str): Redis key pattern to match. Defaults to "*".
+            
+        Returns:
+            list[str]: List of matching keys without the prefix
+        """
+        logger.debug(f"Getting keys matching pattern: {pattern}")
+        full_pattern = self._make_key(pattern)
+        keys = self._redis.keys(full_pattern)
+        # Remove prefix from keys before returning
+        prefix_len = len(self._key_prefix) + 1  # +1 for the colon
+        return [key[prefix_len:] for key in keys]

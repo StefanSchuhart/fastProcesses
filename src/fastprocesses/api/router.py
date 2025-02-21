@@ -7,7 +7,6 @@ from fastprocesses.core.models import (
     Landing,
     Link,
     ProcessExecRequestBody,
-    ProcessList,
 )
 
 
@@ -81,6 +80,24 @@ def get_router(process_manager: ProcessManager) -> APIRouter:
                 )
             logger.error(f"Process {process_id} not found: {error_message}")
             raise HTTPException(status_code=404, detail=error_message)
+
+    @router.get("/jobs")
+    async def list_jobs():
+        """
+        Lists all jobs.
+        """
+        logger.debug("List jobs endpoint accessed")
+        jobs = process_manager.get_jobs()
+        return {
+            "jobs": jobs,
+            "links": [
+                {
+                    "href": "/jobs",
+                    "rel": "self",
+                    "type": "application/json"
+                }
+            ]
+        }
 
     @router.get("/jobs/{job_id}")
     async def get_job_status(job_id: str):
