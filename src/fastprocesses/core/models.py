@@ -76,13 +76,12 @@ class ExecutionMode(str, Enum):
 
 class ProcessExecRequestBody(BaseModel):
     inputs: Dict[str, Any]
-    outputs: Optional[Dict[str, Any]] = None
+    outputs: List[str] | None = None
     mode: Optional[ExecutionMode] = ExecutionMode.ASYNC
     response: Optional[ResponseType] = ResponseType.RAW
 
 class CalculationTask(BaseModel):
     inputs: Dict[str, Any]
-    # TODO: could be a list of keys from process description, and if omitted uses the first output implicitly
     outputs: List[str] | None = None
     response: ResponseType = ResponseType.RAW
 
