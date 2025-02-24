@@ -25,14 +25,17 @@ class ProcessRegistry:
         - Uses Redis hash structure for efficient lookups
         - Enables service discovery and instantiation
         """
-        # Create serializable service metadata
-        service_data = {
-            "description": service.get_description(),
-            # Store full module path for dynamic class loading
-            "class_path": f"{service.__module__}.{service.__class__.__name__}"
-        }
-        logger.debug(f"Service data to be registered: {service_data}")
-        self.redis.hset(self.registry_key, process_id, json.dumps(service_data))
+        try:
+            description = service.get_description()
+            service_data = {
+                "description": description,
+                "class_path": f"{service.__module__}.{service.__class__.__name__}"
+            }
+            logger.debug(f"Service data to be registered: {service_data}")
+            self.redis.hset(self.registry_key, process_id, json.dumps(service_data))
+        except Exception as e:
+            logger.error(f"Failed to register service {process_id}: {e}")
+            raise
 
     def get_service_ids(self) -> List[str]:
         """
@@ -68,14 +71,18 @@ class ProcessRegistry:
         """
         logger.info(f"Retrieving service with ID: {process_id}")
         service_data = self.redis.hget(self.registry_key, process_id)
+        
         if not service_data:
             logger.error(f"Service {process_id} not found!")
             raise ValueError(f"Service {process_id} not found!")
+            
         service_info = json.loads(service_data)
         service_class = locate(service_info["class_path"])
+        
         if not service_class:
             logger.error(f"Service class {service_info['class_path']} not found!")
             raise ValueError(f"Service class {service_info['class_path']} not found!")
+            
         return service_class()
 
 # Global instance of ProcessRegistry
@@ -95,6 +102,9 @@ def register_process(process_id: str):
             ...
     """
     def decorator(cls):
+        if not hasattr(cls, 'description'):
+            raise ValueError(f"Process {cls.__name__} must define a 'description' class variable")
         get_process_registry().register_service(process_id, cls())
         return cls
     return decorator
+
