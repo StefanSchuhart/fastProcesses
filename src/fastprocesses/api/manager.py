@@ -16,8 +16,12 @@ from fastprocesses.core.models import (
 from fastprocesses.processes.process_registry import get_process_registry
 from fastprocesses.worker.celery_app import celery_app
 
+
 class ExecutionStrategy(ABC):
-    """Base class for execution strategies."""
+    """
+    Abstract base class implementing the Strategy pattern for process execution.
+    Different execution modes (sync/async) implement this interface.
+    """
     
     def __init__(self, process_manager):
         self.process_manager = process_manager
@@ -27,14 +31,21 @@ class ExecutionStrategy(ABC):
         pass
 
 class AsyncExecutionStrategy(ExecutionStrategy):
-    """Strategy for asynchronous execution."""
+    """
+    Handles asynchronous process execution by:
+    1. Submitting task to Celery queue
+    2. Creating initial job status in cache
+    3. Returning immediately with job ID
+    """
     
     def execute(self, process_id: str, calculation_task: CalculationTask) -> ProcessExecResponse:
+        # Submit task to Celery worker queue for background processing
         task = self.process_manager.celery_app.send_task(
             'execute_process',
             args=[process_id, calculation_task.model_dump()]
         )
         
+        # Initialize job metadata in cache with status 'accepted'
         job_info = {
             "status": "accepted",
             "type": "process",
@@ -118,7 +129,23 @@ class ProcessManager:
         return service.get_description()
 
     def execute_process(self, process_id: str, data: ProcessExecRequestBody) -> ProcessExecResponse:
-        """Execute a process either synchronously or asynchronously."""
+        """
+        Main process execution orchestration:
+        1. Validates process existence and input data
+        2. Checks result cache to avoid recomputation
+        3. Selects execution strategy (sync/async)
+        4. Delegates execution to appropriate strategy
+        
+        Args:
+            process_id: Identifier for the process to execute
+            data: Contains input parameters and execution mode
+            
+        Returns:
+            ProcessExecResponse with job status and ID
+            
+        Raises:
+            ValueError: If process not found or input validation fails
+        """
         logger.info(f"Executing process ID: {process_id}")
         
         # Validate process exists
@@ -280,7 +307,16 @@ class ProcessManager:
         return jobs
 
     def _check_cache(self, calculation_task: CalculationTask) -> ProcessExecResponse | None:
-        """Check if result exists in cache and return it if found."""
+        """
+        Optimizes performance by checking if identical calculation exists in cache.
+        Uses task input hash as cache key.
+        
+        Args:
+            calculation_task: Task containing input parameters
+            
+        Returns:
+            Cached response if found, None otherwise
+        """
         cache_check = self.celery_app.send_task(
             'check_cache',
             args=[calculation_task.model_dump()]

@@ -20,15 +20,15 @@ class ProcessRegistry:
 
     def register_service(self, process_id: str, service: BaseProcess):
         """
-        Registers a new service.
-
-        Args:
-            process_id (str): The ID of the process.
-            service (BaseProcess): The service object.
+        Registers a process service in Redis:
+        - Stores process description and class path for dynamic loading
+        - Uses Redis hash structure for efficient lookups
+        - Enables service discovery and instantiation
         """
-        logger.info(f"Registering service with ID: {process_id}")
+        # Create serializable service metadata
         service_data = {
             "description": service.get_description(),
+            # Store full module path for dynamic class loading
             "class_path": f"{service.__module__}.{service.__class__.__name__}"
         }
         logger.debug(f"Service data to be registered: {service_data}")
@@ -59,16 +59,12 @@ class ProcessRegistry:
 
     def get_service(self, process_id: str) -> BaseProcess:
         """
-        Retrieves a registered service.
-
-        Args:
-            process_id (str): The ID of the process.
-
-        Returns:
-            BaseProcess: The service object.
-
-        Raises:
-            ValueError: If the service is not found.
+        Dynamically loads and instantiates a process service:
+        1. Retrieves service metadata from Redis
+        2. Uses Python's module system to locate the class
+        3. Instantiates a new service instance
+        
+        The locate() function dynamically imports the class based on its path.
         """
         logger.info(f"Retrieving service with ID: {process_id}")
         service_data = self.redis.hget(self.registry_key, process_id)
@@ -90,7 +86,14 @@ def get_process_registry() -> ProcessRegistry:
     return _global_process_registry
 
 def register_process(process_id: str):
-    """Decorator to register a process implicitly."""
+    """
+    Decorator for automatic process registration.
+    Allows processes to self-register by simply using @register_process decorator.
+    Example:
+        @register_process("my_process")
+        class MyProcess(BaseProcess):
+            ...
+    """
     def decorator(cls):
         get_process_registry().register_service(process_id, cls())
         return cls
