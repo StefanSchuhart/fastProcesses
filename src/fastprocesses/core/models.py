@@ -25,6 +25,9 @@ class ProcessJobControlOptions(str, Enum):
     ASYNC_EXECUTE = "async-execute"
     DISMISS = "dismiss"
 
+# TODO: needs to be passed to outputs keys and when part of the data validated
+# TODO: transmission mode can be different for each output
+# https://schemas.opengis.net/ogcapi/processes/part1/1.0/examples/json/ProcessDescription.json
 class ProcessOutputTransmission(str, Enum):
     VALUE = "value"
     REFERENCE = "reference"
