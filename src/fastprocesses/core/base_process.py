@@ -1,27 +1,40 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any
+from typing import Any, ClassVar, Dict
+
 from pydantic import BaseModel
 
 from fastprocesses.core.models import ProcessDescription
 
+
 class BaseProcess(ABC):
-    @abstractmethod
+    process_description: ClassVar[ProcessDescription]
+
     def get_description(self) -> ProcessDescription:
         """
         Returns the OGC API Process description.
         
-        The description must include:
-        - Process ID and metadata (title, description, version)
-        - Input definitions with schemas
-        - Output definitions with schemas
-        - Job control options (sync/async execution)
-        - Output transmission methods
-        
         Returns:
             ProcessDescription: Complete process description following OGC API standard
         """
-        pass
-    
+        if not hasattr(self, 'process_description'):
+            raise NotImplementedError(
+                f"Process class {self.__class__.__name__} must define 'process_description'"
+            )
+        return self.process_description.model_dump()
+
+    @classmethod
+    def create_description(cls, description_dict: Dict[str, Any]) -> ProcessDescription:
+        """
+        Creates a ProcessDescription from a dictionary.
+        
+        Args:
+            description_dict (Dict[str, Any]): Dictionary containing process description
+            
+        Returns:
+            ProcessDescription: Validated process description object
+        """
+        return ProcessDescription.model_validate(description_dict)
+
     @abstractmethod
     async def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """

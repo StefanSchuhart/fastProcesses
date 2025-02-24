@@ -102,7 +102,7 @@ def register_process(process_id: str):
             ...
     """
     def decorator(cls):
-        if not hasattr(cls, 'description'):
+        if not hasattr(cls, 'process_description'):
             raise ValueError(f"Process {cls.__name__} must define a 'description' class variable")
         get_process_registry().register_service(process_id, cls())
         return cls
