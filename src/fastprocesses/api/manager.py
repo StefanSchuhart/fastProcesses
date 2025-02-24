@@ -164,6 +164,12 @@ class ProcessManager:
             logger.error(f"Input validation failed for process {process_id}: {str(e)}")
             raise ValueError(f"Input validation failed: {str(e)}")
 
+        try:
+            service.validate_outputs(data.outputs)
+        except ValueError as e:
+            logger.error(f"Output validation failed for process {process_id}: {str(e)}")
+            raise ValueError(f"Output validation failed: {str(e)}")
+
         # Create calculation task
         calculation_task = CalculationTask(
             inputs=data.inputs,
