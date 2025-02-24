@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Dict
+from typing import Any, ClassVar, Dict, List
 
 from pydantic import BaseModel
 
@@ -91,5 +91,43 @@ class BaseProcess(ABC):
                         f"Description: {input_desc.get('description', 'No description available')}"
                     )
                 # Add more type validations as needed
+        
+        return True
+    
+    def validate_outputs(self, outputs: str | List[str]) -> bool:
+        """
+        Validates the outputs parameter against the process description.
+        
+        Args:
+            outputs: Single output identifier or list of output identifiers
+                
+        Returns:
+            bool: True if outputs are valid
+                
+        Raises:
+            ValueError: If any output identifier is invalid
+        """
+        description = self.get_description()
+        available_outputs = description.get("outputs", {}).keys()
+        
+        if not available_outputs:
+            raise ValueError("Process has no defined outputs")
+        
+        # Convert single string to list for uniform handling
+        output_list = [outputs] if isinstance(outputs, str) else outputs
+        
+        if not output_list:
+            # If no outputs specified, all outputs are considered valid
+            return True
+        
+        # Validate each output identifier
+        invalid_outputs = [out for out in output_list if out not in available_outputs]
+        if invalid_outputs:
+            available = ", ".join(available_outputs)
+            invalid = ", ".join(invalid_outputs)
+            raise ValueError(
+                f"Invalid output identifiers: {invalid}. "
+                f"Available outputs are: {available}"
+            )
         
         return True
