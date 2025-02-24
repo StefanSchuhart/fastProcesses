@@ -42,7 +42,9 @@ class AsyncExecutionStrategy(ExecutionStrategy):
         # Submit task to Celery worker queue for background processing
         task = self.process_manager.celery_app.send_task(
             'execute_process',
-            args=[process_id, calculation_task.model_dump()]
+            args=[process_id, calculation_task.model_dump(
+                include={"inputs", "outputs", "response"}
+            )]
         )
         
         # Initialize job metadata in cache with status 'accepted'
@@ -63,6 +65,7 @@ class SyncExecutionStrategy(ExecutionStrategy):
     
     def execute(self, process_id: str, calculation_task: CalculationTask) -> ProcessExecResponse:
         service = self.process_manager.service_registry.get_service(process_id)
+        # TODO: response type and outputs must be passed, too
         result = service.execute(calculation_task.inputs)
         
         task = self.process_manager.celery_app.send_task(
@@ -162,7 +165,11 @@ class ProcessManager:
             raise ValueError(f"Input validation failed: {str(e)}")
 
         # Create calculation task
-        calculation_task = CalculationTask(inputs=data.inputs)
+        calculation_task = CalculationTask(
+            inputs=data.inputs,
+            outputs=data.outputs,
+            response=data.response
+        )
         
         # Check cache first
         cached_result = self._check_cache(calculation_task)
@@ -322,7 +329,7 @@ class ProcessManager:
             args=[calculation_task.model_dump()]
         )
         
-        cache_status = cache_check.get(timeout=1)
+        cache_status = cache_check.get(timeout=10)
         if cache_status["status"] != "HIT":
             return None
             
