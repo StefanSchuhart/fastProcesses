@@ -54,7 +54,7 @@ class ProcessInput(BaseModel):
 class ProcessOutput(BaseModel):
     title: str
     description: str
-    schema: Schema
+    scheme: Schema = Field(alias="schema")
     metadata: Optional[Dict[str, Any]] = None
 
 class ProcessDescription(BaseModel):
@@ -82,8 +82,9 @@ class ProcessExecRequestBody(BaseModel):
 
 class CalculationTask(BaseModel):
     inputs: Dict[str, Any]
-    outputs: Dict[str, Any]
-    response: ResponseType
+    # TODO: could be a list of keys from process description, and if omitted uses the first output implicitly
+    outputs: List[str] | None = None
+    response: ResponseType = ResponseType.RAW
 
     def _hash_dict(self):
        return hashlib.sha256(
