@@ -20,6 +20,8 @@
             "command": "docker",
             "args": [
                 "compose",
+                "-f",
+                "docker-compose-dev.yaml",
                 "rm",
                 "-s",
                 "redis",
