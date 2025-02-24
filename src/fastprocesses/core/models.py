@@ -29,6 +29,10 @@ class ProcessOutputTransmission(str, Enum):
     VALUE = "value"
     REFERENCE = "reference"
 
+class ResponseType(str, Enum):
+    RAW = "raw"
+    DOCUMENT = "document"
+
 class Schema(BaseModel):
     type: str
     format: Optional[str] = None
@@ -72,14 +76,19 @@ class ExecutionMode(str, Enum):
 
 class ProcessExecRequestBody(BaseModel):
     inputs: Dict[str, Any]
+    outputs: Optional[Dict[str, Any]] = None
     mode: Optional[ExecutionMode] = ExecutionMode.ASYNC
-    response: Optional[str] = "document"
+    response: Optional[ResponseType] = ResponseType.RAW
 
 class CalculationTask(BaseModel):
     inputs: Dict[str, Any]
+    outputs: Dict[str, Any]
+    response: ResponseType
 
     def _hash_dict(self):
-       return hashlib.sha256(json.dumps(self.inputs, sort_keys=True).encode()).hexdigest()
+       return hashlib.sha256(
+           json.dumps(self.inputs, sort_keys=True).encode()
+        ).hexdigest()
 
     @computed_field
     def celery_key(self) -> str:
