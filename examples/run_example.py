@@ -1,5 +1,6 @@
 import uvicorn
 from fastprocesses.api.server import OGCProcessesAPI
+from .simple_process import SimpleProcess
 
 # Create the FastAPI app
 app = OGCProcessesAPI(
