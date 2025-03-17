@@ -2,7 +2,7 @@ from enum import Enum
 import hashlib
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, computed_field
 
@@ -37,7 +37,7 @@ class ResponseType(str, Enum):
     DOCUMENT = "document"
 
 class Schema(BaseModel):
-    type: str
+    type: Optional[str] = None
     format: Optional[str] = None
     minimum: Optional[float] = None
     maximum: Optional[float] = None
@@ -45,6 +45,14 @@ class Schema(BaseModel):
     maxLength: Optional[int] = None
     pattern: Optional[str] = None
     enum: Optional[List[Any]] = None
+    properties: Optional[Dict[str, Any]] = None
+    required: Optional[List[str]] = None
+    items: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = None
+    oneOf: Optional[List[Dict[str, Any]]] = None
+    allOf: Optional[List[Dict[str, Any]]] = None
+    contentMediaType: Optional[str] = None
+    contentEncoding: Optional[str] = None
+    contentSchema: Optional[str] = None
 
 class ProcessInput(BaseModel):
     title: str
