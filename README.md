@@ -227,6 +227,8 @@ CELERY_BROKER_URL=redis://localhost:6379/1
 CELERY_RESULT_BACKEND=redis://localhost:6379/2
 ```
 
+### Notes:
+How to serialize pydantic models within celery? -> https://benninger.ca/posts/celery-serializer-pydantic/
 ### Version Notes
 
 - **0.4.0**: Added full OGC API Processes 1.0.0 Core compliance
