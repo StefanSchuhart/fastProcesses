@@ -230,7 +230,7 @@ CELERY_RESULT_BACKEND=redis://localhost:6379/2
 ### Notes:
 How to serialize pydantic models within celery? -> https://benninger.ca/posts/celery-serializer-pydantic/
 ### Version Notes
-
+- **0.5.0**: Extended Schema model
 - **0.4.0**: Added full OGC API Processes 1.0.0 Core compliance
 - **0.3.0**: Added job control and output transmission options
 - **0.2.0**: Added Redis caching and Celery integration
