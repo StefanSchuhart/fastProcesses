@@ -36,7 +36,7 @@ class BaseProcess(ABC):
         return ProcessDescription.model_validate(description_dict)
 
     @abstractmethod
-    async def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute(self, exec_body: Dict[str, Any]) -> Dict[str, Any]:
         """
         Executes the process with given inputs.
         
