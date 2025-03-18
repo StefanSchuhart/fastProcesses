@@ -1,12 +1,11 @@
-import uvicorn
-from fastprocesses.api.server import OGCProcessesAPI
-
 from typing import Any, Dict
 
+import uvicorn
+
+from fastprocesses.api.server import OGCProcessesAPI
 from fastprocesses.core.base_process import BaseProcess
 from fastprocesses.core.models import (
     ProcessDescription,
-    ProcessExecRequestBody,
     ProcessInput,
     ProcessJobControlOptions,
     ProcessOutput,
@@ -26,36 +25,25 @@ class SimpleProcess(BaseProcess):
         description="A simple example process",
         jobControlOptions=[
             ProcessJobControlOptions.SYNC_EXECUTE,
-            ProcessJobControlOptions.ASYNC_EXECUTE
+            ProcessJobControlOptions.ASYNC_EXECUTE,
         ],
-        outputTransmission=[
-            ProcessOutputTransmission.VALUE
-        ],
+        outputTransmission=[ProcessOutputTransmission.VALUE],
         inputs={
             "input_text": ProcessInput(
                 title="Input Text",
                 description="Text to process",
-                schema=Schema(
-                    type="string",
-                    minLength=1,
-                    maxLength=1000
-                )
+                scheme=Schema(type="string", minLength=1, maxLength=1000),
             )
         },
         outputs={
             "output_text": ProcessOutput(
                 title="Output Text",
                 description="Processed text",
-                schema=Schema(
-                    type="string"
-                )
+                scheme=Schema(type="string"),
             )
         },
         keywords=["text", "processing"],
-        metadata={
-            "created": "2024-02-19",
-            "provider": "Example Organization"
-        }
+        metadata={"created": "2024-02-19", "provider": "Example Organization"},
     )
 
     async def execute(self, exec_body: dict[str, Any]) -> Dict[str, Any]:
@@ -63,11 +51,12 @@ class SimpleProcess(BaseProcess):
         output_text = input_text.upper()
         return {"output_text": output_text}
 
+
 # Create the FastAPI app
 app = OGCProcessesAPI(
     title="Simple Process API",
     version="1.0.0",
-    description="A simple API for running processes"
+    description="A simple API for running processes",
 ).get_app()
 
 if __name__ == "__main__":
