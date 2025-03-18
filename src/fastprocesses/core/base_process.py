@@ -20,7 +20,7 @@ class BaseProcess(ABC):
             raise NotImplementedError(
                 f"Process class {self.__class__.__name__} must define 'process_description'"
             )
-        return self.process_description.model_dump()
+        return self.process_description
 
     @classmethod
     def create_description(cls, description_dict: Dict[str, Any]) -> ProcessDescription:
