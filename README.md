@@ -2,7 +2,7 @@
 
 A library to create a FastAPI-based OGC API Processes wrapper around existing projects. This library simplifies the process of defining and registering processes, making it easy to build and deploy OGC API Processes.
 
-## Version: Version: 0.6.0
+## Version: Version: 0.6.1
 
 ### Description
 
@@ -230,7 +230,7 @@ CELERY_RESULT_BACKEND=redis://localhost:6379/2
 ### Notes:
 How to serialize pydantic models within celery? -> https://benninger.ca/posts/celery-serializer-pydantic/
 ### Version Notes
-- **Version: 0.6.0**: added paging to processes and jobs, including limit and offset query params
+- **Version: 0.6.1**: added paging to processes and jobs, including limit and offset query params
 - **0.5.0**: Extended Schema model
 - **0.4.0**: Added full OGC API Processes 1.0.0 Core compliance
 - **0.3.0**: Added job control and output transmission options
