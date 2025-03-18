@@ -133,7 +133,7 @@ class ProcessExecRequestBody(BaseModel):
 
 class CalculationTask(BaseModel):
     inputs: Dict[str, Any]
-    outputs: List[str] | None = None
+    outputs: dict[str, dict[str, OutputControl]] | None = None
     response: ResponseType = ResponseType.RAW
 
     def _hash_dict(self):
