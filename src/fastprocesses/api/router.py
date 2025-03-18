@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from fastapi.responses import JSONResponse
 
 from fastprocesses.api.manager import ProcessManager
@@ -52,14 +52,20 @@ def get_router(
         response_model_exclude_none=True,
         response_model=ProcessList
     )
-    async def list_processes():
+    async def list_processes(
+        limit: int = Query(10, ge=1, le=10000),
+        offset: int = Query(0, ge=0)
+    ):
         logger.debug("List processes endpoint accessed")
 
+        processes, next_link = process_manager.get_available_processes(limit, offset)
+        links = [Link(href="/processes", rel="self", type="application/json")]
+        if next_link:
+            links.append(Link(href=next_link, rel="next", type="application/json"))
+
         return ProcessList(
-            processes=process_manager.get_available_processes(),
-            links=[
-                Link(href="/processes", rel="self", type="application/json")
-            ] 
+            processes=processes,
+            links=links
         )
 
     @router.get(
@@ -130,17 +136,22 @@ def get_router(
         response_model_exclude_none=True,
         response_model=JobList
     )
-    async def list_jobs():
+    async def list_jobs(
+        limit: int = Query(10, ge=1, le=1000),
+        offset: int = Query(0, ge=0)
+    ):
         """
         Lists all jobs.
         """
         logger.debug("List jobs endpoint accessed")
-        jobs = process_manager.get_jobs()
+        jobs, next_link = process_manager.get_jobs(limit, offset)
+        links = [Link(href="/jobs", rel="self", type="application/json")]
+        if next_link:
+            links.append(Link(href=next_link, rel="next", type="application/json"))
+
         return JobList(
             jobs=jobs,
-            links=[
-                Link(href="/jobs", rel="self", type="application/json")
-            ]
+            links=links
         )
 
 

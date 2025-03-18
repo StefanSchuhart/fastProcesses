@@ -97,7 +97,9 @@ class ProcessManager:
         self.service_registry = get_process_registry()
         self.cache = redis_cache
 
-    def get_available_processes(self) -> List[ProcessDescription]:
+    def get_available_processes(
+            self, limit: int, offset: int
+    ) -> List[ProcessDescription]:
         logger.info("Retrieving available processes")
         """
         Retrieves a list of available processes.
@@ -105,10 +107,13 @@ class ProcessManager:
         Returns:
             List[ProcessDescription]: A list of process descriptions.
         """
-        return [
-            self.get_process_description(process_id)
-            for process_id in self.service_registry.get_service_ids()
-        ]
+        process_ids = self.service_registry.get_service_ids()
+        processes = [self.get_process_description(process_id) for process_id in process_ids[offset:offset+limit]]
+        next_link = None
+        if offset + limit < len(process_ids):
+            next_link = f"/processes?limit={limit}&offset={offset+limit}"
+        return processes, next_link
+
 
     def get_process_description(self, process_id: str) -> ProcessDescription:
         logger.info(f"Retrieving description for process ID: {process_id}")
@@ -271,7 +276,7 @@ class ProcessManager:
         result.forget()
         return {"status": "dismissed", "message": "Job dismissed"}
 
-    def get_jobs(self) -> List[Dict[str, Any]]:
+    def get_jobs(self, limit: int, offset: int) -> List[Dict[str, Any]]:
         """
         Retrieves a list of all jobs and their status.
         
@@ -282,7 +287,7 @@ class ProcessManager:
         job_keys = self.cache.keys("job:*")
         jobs = []
 
-        for job_key in job_keys:
+        for job_key in job_keys[offset:offset+limit]:
             try:
                 job_info = self.cache.get(job_key)
                 if job_info:
@@ -317,7 +322,11 @@ class ProcessManager:
             except Exception as e:
                 logger.error(f"Error retrieving job {job_key}: {e}")
 
-        return jobs
+        next_link = None
+        if offset + limit < len(job_keys):
+            next_link = f"/jobs?limit={limit}&offset={offset+limit}"
+
+        return jobs, next_link
 
     def _check_cache(self, calculation_task: CalculationTask) -> ProcessExecResponse | None:
         """

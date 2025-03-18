@@ -65,19 +65,19 @@ class BaseProcess(ABC):
             ValueError: With detailed error message if validation fails
         """
         description = self.get_description()
-        required_inputs = description.get("inputs", {})
+        required_inputs = description.inputs
         
         # Check for missing required inputs
         for input_name, input_desc in required_inputs.items():
-            if input_desc.get("minOccurs", 0) > 0 and input_name not in inputs:
+            if input_desc.minOccurs > 0 and input_name not in inputs:
                 raise ValueError(
                     f"Missing required input '{input_name}'. "
                     f"Description: {input_desc.get('description', 'No description available')}"
                 )
             
             # Validate input type if schema is provided
-            if input_name in inputs and "schema" in input_desc:
-                expected_type = input_desc["schema"].get("type")
+            if input_name in inputs:
+                expected_type = input_desc.scheme.type
                 if expected_type == "string" and not isinstance(inputs[input_name], str):
                     raise ValueError(
                         f"Invalid type for input '{input_name}'. "
@@ -91,7 +91,7 @@ class BaseProcess(ABC):
                         f"Description: {input_desc.get('description', 'No description available')}"
                     )
                 # Add more type validations as needed
-        
+    
         return True
     
     def validate_outputs(self, outputs: str | List[str]) -> bool:
@@ -108,7 +108,7 @@ class BaseProcess(ABC):
             ValueError: If any output identifier is invalid
         """
         description = self.get_description()
-        available_outputs = description.get("outputs", {}).keys()
+        available_outputs = description.outputs.keys()
         
         if not available_outputs:
             raise ValueError("Process has no defined outputs")
