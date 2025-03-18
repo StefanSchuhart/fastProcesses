@@ -8,7 +8,9 @@ from fastprocesses.core.models import (
     ExecutionMode,
     Landing,
     Link,
+    ProcessDescription,
     ProcessExecRequestBody,
+    ProcessList
 )
 
 
@@ -39,23 +41,26 @@ def get_router(process_manager: ProcessManager) -> APIRouter:
             ]
         )
 
-    @router.get("/processes")
+    @router.get(
+        "/processes",
+        response_model_exclude_none=True,
+        response_model=ProcessList
+    )
     async def list_processes():
         logger.debug("List processes endpoint accessed")
-        return {
-            "processes": process_manager.get_available_processes(),
-            "links": [
-                {
-                    "href": "/processes",
-                    "rel": "self",
-                    "type": "application/json",
-                    "hreflang": None,
-                    "title": None
-                }
-            ]
-        }
 
-    @router.get("/processes/{process_id}")
+        return ProcessList(
+            processes=process_manager.get_available_processes(),
+            links=[
+                Link(href="/processes", rel="self", type="application/json")
+            ] 
+        )
+
+    @router.get(
+            "/processes/{process_id}",
+            response_model_exclude_none=True,
+            response_model=ProcessDescription
+    )
     async def describe_process(process_id: str):
         logger.debug(f"Describe process endpoint accessed for process ID: {process_id}")
         try:
