@@ -6,23 +6,29 @@ from fastprocesses.core.logging import logger
 from fastprocesses.core.models import (
     Conformance,
     ExecutionMode,
+    JobList,
     Landing,
     Link,
     ProcessDescription,
     ProcessExecRequestBody,
+    ProcessExecResponse,
     ProcessList
 )
 
 
-def get_router(process_manager: ProcessManager) -> APIRouter:
+def get_router(
+        process_manager: ProcessManager,
+        title: str,
+        description: str
+    ) -> APIRouter:
     router = APIRouter()
 
     @router.get("/")
     async def landing_page() -> Landing:
         logger.debug("Landing page accessed")
         return Landing(
-            title="API Title",
-            description="API Description",
+            title=title,
+            description=description,
             links=[
                 Link(href="/", rel="self", type="application/json"),
                 Link(href="/conformance", rel="conformance", type="application/json"),
@@ -69,7 +75,10 @@ def get_router(process_manager: ProcessManager) -> APIRouter:
             logger.error(f"Process {process_id} not found: {e}")
             raise HTTPException(status_code=404, detail=str(e))
 
-    @router.post("/processes/{process_id}/execution")
+    @router.post(
+        "/processes/{process_id}/execution",
+        response_model=ProcessExecResponse
+    )
     async def execute_process(
         process_id: str,
         request: ProcessExecRequestBody,
@@ -116,23 +125,24 @@ def get_router(process_manager: ProcessManager) -> APIRouter:
                 }
             )
 
-    @router.get("/jobs")
+    @router.get(
+        "/jobs",
+        response_model_exclude_none=True,
+        response_model=JobList
+    )
     async def list_jobs():
         """
         Lists all jobs.
         """
         logger.debug("List jobs endpoint accessed")
         jobs = process_manager.get_jobs()
-        return {
-            "jobs": jobs,
-            "links": [
-                {
-                    "href": "/jobs",
-                    "rel": "self",
-                    "type": "application/json"
-                }
+        return JobList(
+            jobs=jobs,
+            links=[
+                Link(href="/jobs", rel="self", type="application/json")
             ]
-        }
+        )
+
 
     @router.get("/jobs/{job_id}")
     async def get_job_status(job_id: str):

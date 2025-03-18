@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
+
 class Link(BaseModel):
     href: str
     rel: str
@@ -128,6 +129,7 @@ class ProcessExecRequestBody(BaseModel):
     model_config = ConfigDict(
         exclude_none=True
     )
+
 
 class CalculationTask(BaseModel):
     inputs: Dict[str, Any]

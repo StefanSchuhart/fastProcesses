@@ -13,7 +13,12 @@ class OGCProcessesAPI:
             version=version,
             description=description
         )
-        self.app.include_router(get_router(self.process_manager))
+        self.app.include_router(
+            get_router(
+                self.process_manager,
+                self.app.title,
+                self.app.description)
+            )
 
     def get_app(self) -> FastAPI:
         return self.app

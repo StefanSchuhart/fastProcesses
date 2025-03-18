@@ -54,7 +54,7 @@ class SimpleProcess(BaseProcess):
 
 # Create the FastAPI app
 app = OGCProcessesAPI(
-    title="Simple Process API",
+    title="Simple OGC API Process - example api",
     version="1.0.0",
     description="A simple API for running processes",
 ).get_app()
