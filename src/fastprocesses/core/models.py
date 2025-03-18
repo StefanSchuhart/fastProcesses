@@ -1,29 +1,33 @@
-from enum import Enum
 import hashlib
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from enum import Enum
+from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
 class Link(BaseModel):
-  href: str
-  rel: str
-  type: str
+    href: str
+    rel: str
+    type: str
+
 
 class Landing(BaseModel):
-  title: str
-  description: str
-  links: List[Link]
+    title: str
+    description: str
+    links: List[Link]
+
 
 class Conformance(BaseModel):
-  conformsTo: List[str]
+    conformsTo: List[str]
+
 
 class ProcessJobControlOptions(str, Enum):
     SYNC_EXECUTE = "sync-execute"
     ASYNC_EXECUTE = "async-execute"
     DISMISS = "dismiss"
+
 
 # TODO: needs to be passed to outputs keys and when part of the data validated
 # TODO: transmission mode can be different for each output
@@ -32,9 +36,11 @@ class ProcessOutputTransmission(str, Enum):
     VALUE = "value"
     REFERENCE = "reference"
 
+
 class ResponseType(str, Enum):
     RAW = "raw"
     DOCUMENT = "document"
+
 
 class Schema(BaseModel):
     type: Optional[str] = None
@@ -54,19 +60,34 @@ class Schema(BaseModel):
     contentEncoding: Optional[str] = None
     contentSchema: Optional[str] = None
 
+    class Config:
+        exclude_none = True
+
+
 class ProcessInput(BaseModel):
     title: str
     description: str
-    schema: Schema
+    scheme: Schema = Field(alias="schema")
     minOccurs: Optional[int] = 1
     maxOccurs: Optional[int] = 1
     metadata: Optional[Dict[str, Any]] = None
+
+    class Config:
+        exclude_none = True
+        populate_by_name = True
+
 
 class ProcessOutput(BaseModel):
     title: str
     description: str
     scheme: Schema = Field(alias="schema")
     metadata: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        exclude_none=True,
+    )
+
 
 class ProcessDescription(BaseModel):
     id: str
@@ -81,15 +102,32 @@ class ProcessDescription(BaseModel):
     keywords: Optional[List[str]] = None
     metadata: Optional[Dict[str, Any]] = None
 
+    class Config:
+        exclude_none = True
+        populate_by_name=True
+
+class ProcessList(BaseModel):
+    processes: List[ProcessDescription]
+    links: Optional[List[Link]] = None
 class ExecutionMode(str, Enum):
     SYNC = "sync"
     ASYNC = "async"
 
+
+class OutputControl(BaseModel):
+    transmissionMode: Literal["value", "reference"] | None = "value"
+    format: dict | None = None
+
+
 class ProcessExecRequestBody(BaseModel):
     inputs: Dict[str, Any]
-    outputs: List[str] | None = None
+    outputs: dict[str, dict[str, OutputControl]] | None = None
     mode: Optional[ExecutionMode] = ExecutionMode.ASYNC
     response: Optional[ResponseType] = ResponseType.RAW
+
+    model_config = ConfigDict(
+        exclude_none=True
+    )
 
 class CalculationTask(BaseModel):
     inputs: Dict[str, Any]
@@ -97,18 +135,20 @@ class CalculationTask(BaseModel):
     response: ResponseType = ResponseType.RAW
 
     def _hash_dict(self):
-       return hashlib.sha256(
-           json.dumps(self.inputs, sort_keys=True).encode()
+        return hashlib.sha256(
+            json.dumps(self.inputs, sort_keys=True).encode()
         ).hexdigest()
 
     @computed_field
     def celery_key(self) -> str:
         return self._hash_dict()
 
+
 class ProcessExecResponse(BaseModel):
-  status: str
-  jobID: str
-  type: str = "process"
+    status: str
+    jobID: str
+    type: str = "process"
+
 
 class ProcessSummary(BaseModel):
     """
@@ -118,6 +158,7 @@ class ProcessSummary(BaseModel):
     id: str
     version: str
     links: Optional[list[Link]] = None
+
 
 class JobStatusInfo(BaseModel):
     jobID: str
@@ -131,6 +172,11 @@ class JobStatusInfo(BaseModel):
     updated: Optional[datetime] = None
     progress: Optional[int] = Field(None, ge=0, le=100)
     links: Optional[List[Link]] = None
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        exclude_none=True
+    )
 
 class JobList(BaseModel):
     jobs: List[JobStatusInfo]
