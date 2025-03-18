@@ -1,13 +1,14 @@
 # src/fastprocesses/services/service_registry.py
 import json
 from pydoc import locate
-from typing import Any, Dict, List
+from typing import List
 
 import redis
 
 from fastprocesses.core.base_process import BaseProcess
 from fastprocesses.core.config import settings
 from fastprocesses.core.logging import logger
+from fastprocesses.core.models import ProcessDescription
 
 
 class ProcessRegistry:
@@ -26,9 +27,12 @@ class ProcessRegistry:
         - Enables service discovery and instantiation
         """
         try:
-            description = service.get_description()
+            description: ProcessDescription = service.get_description()
+            
+            # serialize the description
+            description_dict = description.model_dump(exclude_none=True)
             service_data = {
-                "description": description,
+                "description": description_dict,
                 "class_path": f"{service.__module__}.{service.__class__.__name__}"
             }
             logger.debug(f"Service data to be registered: {service_data}")
@@ -81,7 +85,7 @@ class ProcessRegistry:
         
         if not service_class:
             logger.error(f"Service class {service_info['class_path']} not found!")
-            raise ValueError(f"Service class {service_info['class_path']} not found!")
+            # raise ValueError(f"Service class {service_info['class_path']} not found!")
             
         return service_class()
 
