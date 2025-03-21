@@ -15,7 +15,7 @@ from fastprocesses.core.models import (
     ProcessExecResponse,
 )
 from fastprocesses.processes.process_registry import get_process_registry
-from fastprocesses.worker.celery_app import celery_app
+from fastprocesses.common import celery_app
 
 
 class ExecutionStrategy(ABC):
