@@ -2,10 +2,10 @@ import hashlib
 import json
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
-
+from fastapi.encoders import jsonable_encoder
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, computed_field, field_validator
 
 
 class Link(BaseModel):
@@ -105,11 +105,14 @@ class ProcessDescription(BaseModel):
 
     class Config:
         exclude_none = True
-        populate_by_name=True
+        populate_by_name = True
+
 
 class ProcessList(BaseModel):
     processes: List[ProcessDescription]
     links: Optional[List[Link]] = None
+
+
 class ExecutionMode(str, Enum):
     SYNC = "sync"
     ASYNC = "async"
@@ -126,13 +129,15 @@ class ProcessExecRequestBody(BaseModel):
     mode: Optional[ExecutionMode] = ExecutionMode.ASYNC
     response: Optional[ResponseType] = ResponseType.RAW
 
-    model_config = ConfigDict(
-        exclude_none=True
-    )
+    model_config = ConfigDict(exclude_none=True)
+
+
+def deserialize_json(value: Any) -> Any:
+    return jsonable_encoder(value)
 
 
 class CalculationTask(BaseModel):
-    inputs: Dict[str, Any]
+    inputs: Annotated[Dict[str, Any], AfterValidator(deserialize_json)]
     outputs: dict[str, dict[str, OutputControl]] | None = None
     response: ResponseType = ResponseType.RAW
 
@@ -175,10 +180,8 @@ class JobStatusInfo(BaseModel):
     progress: Optional[int] = Field(None, ge=0, le=100)
     links: Optional[List[Link]] = None
 
-    model_config = ConfigDict(
-        populate_by_name=True,
-        exclude_none=True
-    )
+    model_config = ConfigDict(populate_by_name=True, exclude_none=True)
+
 
 class JobList(BaseModel):
     jobs: List[JobStatusInfo]
