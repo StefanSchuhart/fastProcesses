@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
+import json
 from typing import Any, Dict, List
 
 from celery.result import AsyncResult
@@ -24,7 +25,7 @@ class ExecutionStrategy(ABC):
     """
     
     def __init__(self, process_manager):
-        self.process_manager = process_manager
+        self.process_manager: ProcessManager = process_manager
 
     @abstractmethod
     def execute(self, process_id: str, calculation_task: CalculationTask) -> ProcessExecResponse:
@@ -39,14 +40,18 @@ class AsyncExecutionStrategy(ExecutionStrategy):
     """
     
     def execute(self, process_id: str, calculation_task: CalculationTask) -> ProcessExecResponse:
+
+        # dump data to json
+        serialized_data = json.dumps(calculation_task.model_dump(
+                include={"inputs", "outputs", "response"}
+        ))
+        
         # Submit task to Celery worker queue for background processing
         task = self.process_manager.celery_app.send_task(
             'execute_process',
-            args=[process_id, calculation_task.model_dump(
-                include={"inputs", "outputs", "response"}
-            )]
+            args=[process_id, serialized_data]
         )
-        
+
         # Initialize job metadata in cache with status 'accepted'
         job_info = {
             "status": "accepted",
@@ -193,7 +198,7 @@ class ProcessManager:
             ExecutionMode.ASYNC: AsyncExecutionStrategy(self)
         }
         
-        strategy = execution_strategies[data.mode]
+        strategy: SyncExecutionStrategy | AsyncExecutionStrategy = execution_strategies[data.mode]
         return strategy.execute(process_id, calculation_task)
 
     def get_job_status(self, job_id: str) -> Dict[str, Any]:

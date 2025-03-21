@@ -1,6 +1,7 @@
 # worker/celery_app.py
 import asyncio
 from datetime import datetime, timezone
+import json
 from typing import Any, Dict
 
 from celery import Task
@@ -20,10 +21,9 @@ class CacheResultTask(Task):
             task_id, args, kwargs
     ):
         try:
-            # Create a CalculationTask instance to create a hash of the inputs
-            calculation_task = CalculationTask(
-                **args[1]
-            )  
+            # Deserialize the original data
+            original_data = json.loads(args[1])
+            calculation_task = CalculationTask(**original_data)
             
             # Get the the hash key for the task
             key = calculation_task.celery_key
@@ -38,7 +38,10 @@ class CacheResultTask(Task):
 
 
 @celery_app.task(bind=True, name="execute_process", base=CacheResultTask)
-def execute_process(self, process_id: str, data: Dict[str, Any]):
+def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
+
+    data = json.loads(serialized_data)
+
     logger.info(f"Executing process {process_id} with data {data}")
     job_id = self.request.id  # Get the task/job ID
 
