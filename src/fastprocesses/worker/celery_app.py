@@ -14,6 +14,10 @@ from fastprocesses.processes.process_registry import get_process_registry
 
 from celery.exceptions import SoftTimeLimitExceeded
 
+# NOTE: Cache hash key is based on original unprocessed inputs always
+# this ensures consistent caching and cache retrieval
+# which does not depend on arbitrary processed data, which can change
+# when the process is updated or changed!
 
 class CacheResultTask(Task):
     def on_success(
