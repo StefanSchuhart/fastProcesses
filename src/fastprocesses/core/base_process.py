@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Dict, List
+from typing import Any, Callable, ClassVar, Dict, List
 
 from pydantic import BaseModel
 
@@ -36,7 +36,11 @@ class BaseProcess(ABC):
         return ProcessDescription.model_validate(description_dict)
 
     @abstractmethod
-    async def execute(self, exec_body: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute(
+        self,
+        exec_body: Dict[str, Any],
+        progress_callback: Callable[[int, str], None] | None = None
+    ) -> Dict[str, Any]:
         """
         Executes the process with given inputs.
         
