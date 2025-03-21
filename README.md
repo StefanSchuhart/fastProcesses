@@ -2,7 +2,9 @@
 
 A library to create a FastAPI-based OGC API Processes wrapper around existing projects. This library simplifies the process of defining and registering processes, making it easy to build and deploy OGC API Processes.
 
-## Version: Version: 0.6.1
+AI was used to create this code.
+
+## Version: 0.6.1
 
 ### Description
 
