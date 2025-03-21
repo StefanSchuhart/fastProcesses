@@ -4,7 +4,7 @@ A library to create a FastAPI-based OGC API Processes wrapper around existing pr
 
 AI was used to create this code.
 
-## Version: 0.7.0
+## Version: 0.7.1
 
 ### Description
 
@@ -232,7 +232,7 @@ CELERY_RESULT_BACKEND=redis://localhost:6379/2
 ### Notes:
 How to serialize pydantic models within celery? -> https://benninger.ca/posts/celery-serializer-pydantic/
 ### Version Notes
-- **Version: 0.7.0**: added paging to processes and jobs, including limit and offset query params
+- **Version: 0.7.1**: added paging to processes and jobs, including limit and offset query params
 - **0.5.0**: Extended Schema model
 - **0.4.0**: Added full OGC API Processes 1.0.0 Core compliance
 - **0.3.0**: Added job control and output transmission options
