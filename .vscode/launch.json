@@ -6,7 +6,9 @@
     "compounds": [
         {
             "name": "api+worker",
-            "configurations": ["Api", "Worker"]
+            "configurations": ["Api", "Worker"],
+            "stopAll": true,
+            "preLaunchTask": "start-redis-container"
         }
     ],
     "configurations": [
@@ -43,9 +45,8 @@
             "jinja": true,
             "envFile": "${workspaceFolder}/.env",
             "justMyCode": false,
-            "preLaunchTask": "start-redis-container",
+            "autoReload": {"enable": true},
             "postDebugTask": "stop-redis-container",
-            "autoReload": {"enable": true}
         }
     ]
 }
