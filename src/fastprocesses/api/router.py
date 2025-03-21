@@ -32,7 +32,8 @@ def get_router(
             links=[
                 Link(href="/", rel="self", type="application/json"),
                 Link(href="/conformance", rel="conformance", type="application/json"),
-                Link(href="/processes", rel="processes", type="application/json")
+                Link(href="/processes", rel="processes", type="application/json"),
+                Link(href="/jobs", rel="jobs", type="application/json"),
             ]
         )
 
