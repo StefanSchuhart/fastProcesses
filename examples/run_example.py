@@ -1,5 +1,7 @@
-from typing import Any, Dict
+import asyncio
+from typing import Any, Callable, Dict
 
+from pydantic import BaseModel
 import uvicorn
 
 from fastprocesses.api.server import OGCProcessesAPI
@@ -14,7 +16,26 @@ from fastprocesses.core.models import (
 )
 from fastprocesses.processes.process_registry import register_process
 
+class TextModel(BaseModel):
+    input_text: str
 
+    class Config:
+        schema_extra = {
+            "example": {
+                "input_text": "Hello, World!",
+                "output_text": "HELLO, WORLD!",
+            }
+        } 
+
+class TextModelOut(BaseModel):
+    output_text: str
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "output_text": "HELLO, WORLD!",
+            }
+        }
 @register_process("simple_process")
 class SimpleProcess(BaseProcess):
     # Define process description as a class variable
@@ -46,10 +67,35 @@ class SimpleProcess(BaseProcess):
         metadata={"created": "2024-02-19", "provider": "Example Organization"},
     )
 
-    async def execute(self, exec_body: dict[str, Any]) -> Dict[str, Any]:
-        input_text = exec_body["inputs"]["input_text"]
-        output_text = input_text.upper()
-        return {"output_text": output_text}
+    async def execute(
+        self,
+        exec_body: dict[str, Any],
+        progress_callback: Callable[[int, str], None] | None = None
+    ) -> Dict[str, Any]:
+
+        # Report start if callback is provided
+        if progress_callback:
+            progress_callback(10, "Processing input")
+
+        text_model = TextModel.model_validate(exec_body["inputs"])
+
+        # Simulate some processing time
+        if progress_callback:
+            progress_callback(30, "Converting text")
+
+        await asyncio.sleep(0.5)  # Simulate work
+        output_text = text_model.input_text.upper()
+        output_model = TextModelOut(output_text=output_text)
+
+        if progress_callback:
+            progress_callback(70, "Finalizing results")
+
+        await asyncio.sleep(0.3)  # More simulated work
+
+        if progress_callback:
+            progress_callback(90, "Preparing output")
+
+        return output_model
 
 
 # Create the FastAPI app
