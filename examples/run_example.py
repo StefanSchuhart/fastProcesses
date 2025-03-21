@@ -17,7 +17,7 @@ from fastprocesses.core.models import (
 from fastprocesses.processes.process_registry import register_process
 
 class TextModel(BaseModel):
-    input_text: str
+    input_text: str | dict
 
     class Config:
         schema_extra = {
@@ -53,7 +53,7 @@ class SimpleProcess(BaseProcess):
             "input_text": ProcessInput(
                 title="Input Text",
                 description="Text to process",
-                scheme=Schema(type="string", minLength=1, maxLength=1000),
+                scheme=Schema(type="dict", minLength=1, maxLength=1000),
             )
         },
         outputs={
@@ -84,7 +84,7 @@ class SimpleProcess(BaseProcess):
             progress_callback(30, "Converting text")
 
         await asyncio.sleep(0.5)  # Simulate work
-        output_text = text_model.input_text.upper()
+        output_text = text_model.input_text.get("one").upper()
         output_model = TextModelOut(output_text=output_text)
 
         if progress_callback:
