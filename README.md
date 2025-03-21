@@ -231,6 +231,9 @@ CELERY_RESULT_BACKEND=redis://localhost:6379/2
 
 ### Notes:
 How to serialize pydantic models within celery? -> https://benninger.ca/posts/celery-serializer-pydantic/
+
+!IMPORTANT!: Cache hash key is based on original unprocessed inputs always this ensures consistent caching and cache retrieval which does not depend on arbitrary processed data, which can change when the process is updated or changed!
+
 ### Version Notes
 - **Version: 0.7.1**: added paging to processes and jobs, including limit and offset query params
 - **0.5.0**: Extended Schema model
