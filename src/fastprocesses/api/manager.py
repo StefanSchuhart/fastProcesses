@@ -251,7 +251,7 @@ class ProcessManager:
             raise ValueError(f"Job failed: {result.result}")
         elif result.state == 'SUCCESS':
             logger.info(f"Job ID {job_id} completed successfully")
-            return {"status": "successful", "type": "process", "value": result.result}
+            return result.result
         else:
             return {"status": "running", "type": "process"}
 
