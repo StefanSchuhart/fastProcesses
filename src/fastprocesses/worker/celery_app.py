@@ -76,7 +76,12 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
         service = get_process_registry().get_service(process_id)
 
         if asyncio.iscoroutinefunction(service.execute):
-            result = asyncio.run(service.execute(data))
+            result = asyncio.run(
+                service.execute(
+                    data,
+                    progress_callback=update_progress,
+                )
+            )
         else:
             result = service.execute(data)
 
