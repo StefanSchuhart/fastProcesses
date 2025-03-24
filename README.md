@@ -4,7 +4,7 @@ A library to create a FastAPI-based OGC API Processes wrapper around existing pr
 
 AI was used to create this code.
 
-## Version: 0.7.3
+## Version: 0.7.4
 
 ### Description
 
@@ -235,7 +235,7 @@ How to serialize pydantic models within celery? -> https://benninger.ca/posts/ce
 !IMPORTANT!: Cache hash key is based on original unprocessed inputs always this ensures consistent caching and cache retrieval which does not depend on arbitrary processed data, which can change when the process is updated or changed!
 
 ### Version Notes
-- **Version: 0.7.3**: added paging to processes and jobs, including limit and offset query params
+- **Version: 0.7.4**: added paging to processes and jobs, including limit and offset query params
 - **0.5.0**: Extended Schema model
 - **0.4.0**: Added full OGC API Processes 1.0.0 Core compliance
 - **0.3.0**: Added job control and output transmission options
