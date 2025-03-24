@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from celery.result import AsyncResult
 
@@ -104,7 +104,7 @@ class ProcessManager:
 
     def get_available_processes(
             self, limit: int, offset: int
-    ) -> List[ProcessDescription]:
+    ) -> Tuple[List[ProcessDescription], str]:
         logger.info("Retrieving available processes")
         """
         Retrieves a list of available processes.
@@ -113,7 +113,11 @@ class ProcessManager:
             List[ProcessDescription]: A list of process descriptions.
         """
         process_ids = self.service_registry.get_service_ids()
-        processes = [self.get_process_description(process_id) for process_id in process_ids[offset:offset+limit]]
+        processes = [
+            self.get_process_description(process_id)
+            for process_id
+            in process_ids[offset:offset+limit]
+        ]
         next_link = None
         if offset + limit < len(process_ids):
             next_link = f"/processes?limit={limit}&offset={offset+limit}"
