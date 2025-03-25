@@ -35,8 +35,17 @@ class ProcessRegistry:
                 "description": description_dict,
                 "class_path": f"{service.__module__}.{service.__class__.__name__}"
             }
-            logger.debug(f"Service data to be registered: {service_data}")
-            self.redis.hset(self.registry_key, process_id, json.dumps(service_data))
+            logger.debug(f"Process data to be registered: {service_data}")
+        
+            result = self.redis.hset(self.registry_key, process_id, json.dumps(service_data))
+        
+            logger.debug(f"Redis hset result: {result}")
+            logger.info(f"Process {process_id} registered successfully")
+        
+        except redis.RedisError as e:
+            logger.error(f"Failed to write to Redis: {e}")
+            raise
+        
         except Exception as e:
             logger.error(f"Failed to register service {process_id}: {e}")
             raise
@@ -82,7 +91,9 @@ class ProcessRegistry:
             
         service_info = json.loads(service_data)
         service_class = locate(service_info["class_path"])
-        
+
+        logger.debug(f"Class path for service {process_id}: {service_info["class_path"]}")
+
         if not service_class:
             logger.error(f"Service class {service_info['class_path']} not found!")
             # raise ValueError(f"Service class {service_info['class_path']} not found!")
