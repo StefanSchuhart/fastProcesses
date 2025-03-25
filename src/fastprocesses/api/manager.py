@@ -113,12 +113,14 @@ class ProcessManager:
             List[ProcessDescription]: A list of process descriptions.
         """
         process_ids = self.service_registry.get_service_ids()
+
         processes = [
             self.get_process_description(process_id)
             for process_id
             in process_ids[offset:offset+limit]
         ]
         next_link = None
+
         if offset + limit < len(process_ids):
             next_link = f"/processes?limit={limit}&offset={offset+limit}"
         return processes, next_link
@@ -170,6 +172,8 @@ class ProcessManager:
             logger.error(f"Process {process_id} not found!")
             raise ValueError(f"Process {process_id} not found!")
 
+        logger.debug(f"Process {process_id} found in registry")
+
         # Get service and validate inputs
         service = self.service_registry.get_service(process_id)
         try:
@@ -194,6 +198,7 @@ class ProcessManager:
         # Check cache first
         cached_result = self._check_cache(calculation_task)
         if cached_result:
+            logger.info(f"Result found in cache for process {process_id}")
             return cached_result
         
         # Select execution strategy based on mode
