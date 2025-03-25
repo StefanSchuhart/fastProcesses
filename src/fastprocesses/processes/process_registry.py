@@ -4,6 +4,10 @@ from pydoc import locate
 from typing import List
 
 import redis
+from redis.exceptions import (TimeoutError, ConnectionError)
+from redis.backoff import ExponentialBackoff
+
+from redis.retry import Retry
 
 from fastprocesses.core.base_process import BaseProcess
 from fastprocesses.core.config import settings
@@ -16,7 +20,16 @@ class ProcessRegistry:
 
     def __init__(self):
         """Initializes the ProcessRegistry with Redis connection."""
-        self.redis = redis.Redis.from_url(str(settings.RESULTS_CACHE_URL))
+        self.retry = Retry(
+            ExponentialBackoff(cap=10, base=1),
+            -1
+        )
+        self.redis = redis.Redis(
+            str(settings.results_cache.connection),
+            retry=self.retry,
+            retry_on_error=[ConnectionError, TimeoutError, ConnectionResetError],
+            health_check_interval=1
+        )
         self.registry_key = "service_registry"
 
     def register_service(self, process_id: str, service: BaseProcess):

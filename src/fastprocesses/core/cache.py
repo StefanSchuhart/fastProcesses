@@ -2,6 +2,9 @@ import json
 
 import redis
 from fastapi.encoders import jsonable_encoder
+from redis.backoff import ExponentialBackoff
+from redis.exceptions import ConnectionError, TimeoutError
+from redis.retry import Retry
 
 from fastprocesses.core.config import settings
 from fastprocesses.core.logging import logger
@@ -9,8 +12,12 @@ from fastprocesses.core.logging import logger
 
 class Cache:
     def __init__(self, key_prefix: str, ttl_days: int):
+        self._retry = Retry(ExponentialBackoff(cap=10, base=1), -1)
         self._redis = redis.Redis.from_url(
-            str(settings.RESULTS_CACHE_URL), decode_responses=True
+            str(settings.results_cache.connection),
+            retry=self._retry,
+            retry_on_error=[ConnectionError, TimeoutError, ConnectionResetError],
+            health_check_interval=1
         )
         self._key_prefix = key_prefix
         self._ttl_days = ttl_days

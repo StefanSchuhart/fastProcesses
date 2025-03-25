@@ -17,6 +17,7 @@ def custom_json_deserializer(data):
     # Deserialize JSON back into Python objects
     return json.loads(data)
 
+
 # Register the custom serializer
 register(
     "custom_json",
@@ -28,8 +29,8 @@ register(
 
 celery_app = Celery(
     "ogc_processes",
-    broker=str(settings.celery_broker_url),
-    backend=str(settings.celery_result_backend),
+    broker=settings.celery_broker.connection.unicode_string(),
+    backend=settings.celery_result.connection.unicode_string(),
     include=["fastprocesses.worker.celery_app"],  # Ensure the module is included
 )
 
@@ -53,10 +54,9 @@ celery_app.conf.update(
     result_expires=3600,  # Time in seconds before results expire
     worker_send_task_events=True,  # Enable events to track task progress
     # task_acks_late=True,  # Acknowledge the task only after it has been executed)
-
 )
 
 redis_cache = Cache(
     key_prefix="process_results",
-    ttl_days=settings.RESULTS_CACHE_TTL
+    ttl_days=settings.results_cache.RESULTS_CACHE_TTL,
 )
