@@ -16,7 +16,7 @@ class ProcessRegistry:
 
     def __init__(self):
         """Initializes the ProcessRegistry with Redis connection."""
-        self.redis = redis.Redis.from_url(str(settings.redis_cache_url))
+        self.redis = redis.Redis.from_url(str(settings.RESULTS_CACHE_URL))
         self.registry_key = "service_registry"
 
     def register_service(self, process_id: str, service: BaseProcess):
@@ -28,24 +28,26 @@ class ProcessRegistry:
         """
         try:
             description: ProcessDescription = service.get_description()
-            
+
             # serialize the description
             description_dict = description.model_dump(exclude_none=True)
             service_data = {
                 "description": description_dict,
-                "class_path": f"{service.__module__}.{service.__class__.__name__}"
+                "class_path": f"{service.__module__}.{service.__class__.__name__}",
             }
             logger.debug(f"Process data to be registered: {service_data}")
-        
-            result = self.redis.hset(self.registry_key, process_id, json.dumps(service_data))
-        
+
+            result = self.redis.hset(
+                self.registry_key, process_id, json.dumps(service_data)
+            )
+
             logger.debug(f"Redis hset result: {result}")
             logger.info(f"Process {process_id} registered successfully")
-        
+
         except redis.RedisError as e:
             logger.error(f"Failed to write to Redis: {e}")
             raise
-        
+
         except Exception as e:
             logger.error(f"Failed to register service {process_id}: {e}")
             raise
@@ -58,7 +60,7 @@ class ProcessRegistry:
             List[str]: A list of service IDs.
         """
         logger.debug("Retrieving all registered service IDs")
-        return [key.decode('utf-8') for key in self.redis.hkeys(self.registry_key)]
+        return [key.decode("utf-8") for key in self.redis.hkeys(self.registry_key)]
 
     def has_service(self, process_id: str) -> bool:
         """
@@ -79,33 +81,38 @@ class ProcessRegistry:
         1. Retrieves service metadata from Redis
         2. Uses Python's module system to locate the class
         3. Instantiates a new service instance
-        
+
         The locate() function dynamically imports the class based on its path.
         """
         logger.info(f"Retrieving service with ID: {process_id}")
         service_data = self.redis.hget(self.registry_key, process_id)
-        
+
         if not service_data:
             logger.error(f"Service {process_id} not found!")
             raise ValueError(f"Service {process_id} not found!")
-            
+
         service_info = json.loads(service_data)
         service_class = locate(service_info["class_path"])
 
-        logger.debug(f"Class path for service {process_id}: {service_info["class_path"]}")
+        logger.debug(
+            f"Class path for service {process_id}: {service_info['class_path']}"
+        )
 
         if not service_class:
             logger.error(f"Service class {service_info['class_path']} not found!")
             # raise ValueError(f"Service class {service_info['class_path']} not found!")
-            
+
         return service_class()
+
 
 # Global instance of ProcessRegistry
 _global_process_registry = ProcessRegistry()
 
+
 def get_process_registry() -> ProcessRegistry:
     """Returns the global ProcessRegistry instance."""
     return _global_process_registry
+
 
 def register_process(process_id: str):
     """
@@ -116,10 +123,13 @@ def register_process(process_id: str):
         class MyProcess(BaseProcess):
             ...
     """
+
     def decorator(cls):
-        if not hasattr(cls, 'process_description'):
-            raise ValueError(f"Process {cls.__name__} must define a 'description' class variable")
+        if not hasattr(cls, "process_description"):
+            raise ValueError(
+                f"Process {cls.__name__} must define a 'description' class variable"
+            )
         get_process_registry().register_service(process_id, cls())
         return cls
-    return decorator
 
+    return decorator
