@@ -85,7 +85,10 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
         else:
             result = service.execute(data)
 
-        logger.info(f"Process {process_id} executed successfully with result {result}")
+        logger.info(
+            f"Process {process_id} executed "
+            f"successfully with result {json.dumps(result)[:80]}"
+        )
 
         # Mark job as complete
         update_progress(100, "Process completed")
