@@ -1,6 +1,9 @@
-from pydantic import RedisDsn, AnyUrl
+
+
+from pydantic import AnyUrl, RedisDsn, field_validator
 from pydantic_settings import BaseSettings
 
+from fastprocesses.core.logging import logger
 
 class OGCProcessesSettings(BaseSettings):
     api_title: str = "Simple Process API"
@@ -9,9 +12,26 @@ class OGCProcessesSettings(BaseSettings):
     celery_broker_url: RedisDsn = RedisDsn("redis://redis:6379/0")
     celery_result_backend: RedisDsn = RedisDsn("redis://redis:6379/0")
     redis_cache_url: RedisDsn = RedisDsn("redis://redis:6379/1")
+    CORS_ALLOWED_ORIGINS: list[AnyUrl] = ["*"]
+
+    @field_validator("CORS_ALLOWED_ORIGINS", mode="before")
+    def parse_cors_origins(cls, v) -> list[str]:
+        if isinstance(v, str):
+            # Handle comma-separated string
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        if isinstance(v, list):
+            return [str(origin).strip() for origin in v if str(origin).strip()]
+        
+        raise ValueError(
+            "CORS_ALLOWED_ORIGINS must be a comma-separated string or list"
+        )
+
+    def print_settings(self):
+        logger.info(vars(self))
 
     class Config:
         env_file = ".env"
         extra = "ignore"
+
 
 settings = OGCProcessesSettings()
