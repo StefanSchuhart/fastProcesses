@@ -9,7 +9,9 @@ from fastprocesses.core.logging import logger
 
 class Cache:
     def __init__(self, key_prefix: str, ttl_days: int):
-        self._redis = redis.Redis.from_url(str(settings.redis_cache_url), decode_responses=True)
+        self._redis = redis.Redis.from_url(
+            str(settings.RESULTS_CACHE_URL), decode_responses=True
+        )
         self._key_prefix = key_prefix
         self._ttl_days = ttl_days
 
@@ -17,7 +19,7 @@ class Cache:
         logger.debug(f"Getting cache for key: {key}")
         key = self._make_key(key)
         serialized_value = self._redis.get(key)
-        
+
         logger.debug(f"{serialized_value}")
         return None if serialized_value is None else json.loads(serialized_value)
 
@@ -40,10 +42,10 @@ class Cache:
     def keys(self, pattern: str = "*") -> list[str]:
         """
         Get all keys matching the pattern.
-        
+
         Args:
             pattern (str): Redis key pattern to match. Defaults to "*".
-            
+
         Returns:
             list[str]: List of matching keys without the prefix
         """

@@ -56,4 +56,7 @@ celery_app.conf.update(
 
 )
 
-redis_cache = Cache(key_prefix="process_results", ttl_days=7)
+redis_cache = Cache(
+    key_prefix="process_results",
+    ttl_days=settings.RESULTS_CACHE_TTL
+)
