@@ -47,6 +47,25 @@
             "justMyCode": false,
             "autoReload": {"enable": true},
             "postDebugTask": "stop-redis-container",
+        },
+        {
+            "name": "celery flower",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "celery",
+            "console": "integratedTerminal",
+            "args": [
+                "-A",
+                "fastprocesses.worker.celery_app",
+                "flower",
+                "--port=5555"
+            ],
+            "jinja": true,
+            "envFile": "${workspaceFolder}/.env",
+            "justMyCode": true,
+            "autoReload": {
+                "enable": true
+            }
         }
     ]
 }
