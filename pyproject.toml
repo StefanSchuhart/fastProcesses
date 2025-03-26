@@ -63,6 +63,7 @@ exclude = [
     "dist",
     "node_modules",
     "venv",
+    ".venv"
 ]
 
 [tool.poetry]
@@ -89,6 +90,7 @@ pytest-xdist = ">=2.2.0,<3"
 types-toml = ">=0.10.1,<1"
 pre-commit = ">=3.4.0,<4"
 bump2version = "^1.0.1"
+flower = "^2.0.1"
 
 [tool.poetry.group.docs]
 optional = true
