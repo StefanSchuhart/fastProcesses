@@ -224,15 +224,17 @@ curl -X POST "http://localhost:8000/processes/simple_process/execution" \
 The library can be configured using environment variables:
 
 ```bash
-REDIS_CACHE_URL=redis://localhost:6379/0
-CELERY_BROKER_URL=redis://localhost:6379/1
-CELERY_RESULT_BACKEND=redis://localhost:6379/2
+RESULT_CACHE_HOST="redis"
+RESULT_CACHE_PORT=6379
+RESULT_CACHE_DB=1
+
+CELERY_BROKER_HOST="redis"
+CELERY_BROKER_PORT=6379
+CELERY_BROKER_DB=0
 ```
 
 ### Notes:
-How to serialize pydantic models within celery? -> https://benninger.ca/posts/celery-serializer-pydantic/
-
-!IMPORTANT!: Cache hash key is based on original unprocessed inputs always this ensures consistent caching and cache retrieval which does not depend on arbitrary processed data, which can change when the process is updated or changed!
+!IMPORTANT!: Cache hash key is based on original unprocessed inputs always. This ensures consistent caching and cache retrieval which does not depend on arbitrary processed data, which can change when the process is updated or changed!
 
 ### Version Notes
 - **0.7.0**: added progress callback for job updates and SoftTimeLimit for tasks
