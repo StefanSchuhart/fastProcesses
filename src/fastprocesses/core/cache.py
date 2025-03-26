@@ -27,7 +27,7 @@ class Cache:
         key = self._make_key(key)
         serialized_value = self._redis.get(key)
 
-        logger.debug(f"{serialized_value}")
+        logger.debug(f"Received data: {serialized_value[:80]}")
         return None if serialized_value is None else json.loads(serialized_value)
 
     def put(self, key: str, value: dict) -> None:
