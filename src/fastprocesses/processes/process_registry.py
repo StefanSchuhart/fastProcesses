@@ -24,7 +24,7 @@ class ProcessRegistry:
             ExponentialBackoff(cap=10, base=1),
             -1
         )
-        self.redis = redis.Redis(
+        self.redis = redis.Redis.from_url(
             str(settings.results_cache.connection),
             retry=self.retry,
             retry_on_error=[ConnectionError, TimeoutError, ConnectionResetError],
