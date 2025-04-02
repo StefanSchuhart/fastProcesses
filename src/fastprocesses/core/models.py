@@ -89,27 +89,37 @@ class ProcessOutput(BaseModel):
         exclude_none=True,
     )
 
+class ProcessSummary(BaseModel):
+    """
+    The OGC conform ProcessSummary Model.
+    """
 
-class ProcessDescription(BaseModel):
     id: str
+    version: str
+    jobControlOptions: List[ProcessJobControlOptions]
+    outputTransmission: List[ProcessOutputTransmission]
+    links: Optional[List[Link]] = None
+
+    class Config:
+        ignore_extra = True
+        exclude_none = True
+        populate_by_name = True
+
+
+class ProcessDescription(ProcessSummary):
     title: str
     description: str
     version: str
     jobControlOptions: List[ProcessJobControlOptions]
     outputTransmission: List[ProcessOutputTransmission]
-    inputs: Dict[str, ProcessInput]
-    outputs: Dict[str, ProcessOutput]
-    links: Optional[List[Link]] = None
     keywords: Optional[List[str]] = None
     metadata: Optional[Dict[str, Any]] = None
-
-    class Config:
-        exclude_none = True
-        populate_by_name = True
+    inputs: Dict[str, ProcessInput]
+    outputs: Dict[str, ProcessOutput]
 
 
 class ProcessList(BaseModel):
-    processes: List[ProcessDescription]
+    processes: List[ProcessSummary]
     links: Optional[List[Link]] = None
 
 

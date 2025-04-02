@@ -13,6 +13,7 @@ from fastprocesses.core.models import (
     ProcessDescription,
     ProcessExecRequestBody,
     ProcessExecResponse,
+    ProcessSummary,
 )
 from fastprocesses.processes.process_registry import get_process_registry
 from fastprocesses.common import celery_app
@@ -104,7 +105,7 @@ class ProcessManager:
 
     def get_available_processes(
             self, limit: int, offset: int
-    ) -> Tuple[List[ProcessDescription], str]:
+    ) -> Tuple[List[ProcessSummary], str]:
         logger.info("Retrieving available processes")
         """
         Retrieves a list of available processes.
