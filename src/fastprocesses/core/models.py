@@ -95,6 +95,7 @@ class ProcessSummary(BaseModel):
     """
 
     id: str
+    title: str
     version: str
     jobControlOptions: List[ProcessJobControlOptions]
     outputTransmission: List[ProcessOutputTransmission]
@@ -107,9 +108,7 @@ class ProcessSummary(BaseModel):
 
 
 class ProcessDescription(ProcessSummary):
-    title: str
     description: str
-    version: str
     jobControlOptions: List[ProcessJobControlOptions]
     outputTransmission: List[ProcessOutputTransmission]
     keywords: Optional[List[str]] = None
