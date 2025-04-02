@@ -41,7 +41,7 @@ class SimpleProcess(BaseProcess):
     # Define process description as a class variable
     process_description = ProcessDescription(
         id="simple_process",
-        title="Simple Procprocess_ess",
+        title="Simple Process",
         version="1.0.0",
         description="A simple example process",
         jobControlOptions=[
