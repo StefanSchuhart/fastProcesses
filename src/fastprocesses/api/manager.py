@@ -46,16 +46,16 @@ class AsyncExecutionStrategy(ExecutionStrategy):
     """
 
     def execute(
-        self, process_id: str, calculation_task: CalculationTask
+        self, process_id: str, calculation_task: CalculationTask, version: str
     ) -> ProcessExecResponse:
         # dump data to json
         serialized_data = json.dumps(
             calculation_task.model_dump(include={"inputs", "outputs", "response"})
         )
 
-        # Submit task to Celery worker queue for background processing
+        # Submit the task to the Celery worker queue
         task = self.process_manager.celery_app.send_task(
-            "execute_process", args=[process_id, serialized_data]
+            "execute_process", args=[process_id, version, serialized_data]
         )
 
         # Initialize job metadata in cache with status 'accepted'
@@ -88,7 +88,8 @@ class SyncExecutionStrategy(ExecutionStrategy):
     """Strategy for synchronous execution."""
 
     def execute(
-        self, process_id: str, calculation_task: CalculationTask
+        self, process_id: str, calculation_task: CalculationTask,
+        version: str
     ) -> ProcessExecResponse:
         process = self.process_manager.process_registry.get_process(process_id)
         # TODO: response type and outputs must be passed, too
@@ -182,6 +183,7 @@ class ProcessManager:
         process_id: str,
         data: ProcessExecRequestBody,
         execution_mode: ExecutionMode,
+        version: str | None = None,
     ) -> ProcessExecResponse:
         """
         Main process execution orchestration:
@@ -203,8 +205,8 @@ class ProcessManager:
         logger.info(f"Executing process ID: {process_id}")
 
         # Validate process exists
-        if not self.process_registry.has_process(process_id):
-            logger.error(f"Process {process_id} not found!")
+        if not self.process_registry.has_process(process_id, version):
+            logger.error(f"Process {process_id} (version {version})not found!")
             raise ValueError(f"Process {process_id} not found!")
 
         logger.debug(f"Process {process_id} found in registry")
