@@ -188,24 +188,23 @@ Execute a process (async):
 ```bash
 curl -X POST "http://localhost:8000/processes/simple_process/execution" \
      -H "Content-Type: application/json" \
+     -H "Prefer: respond-async" \
      -d '{
        "inputs": {
          "input_text": "hello world"
-       },
-       "mode": "async"
-     }'
+        }
+       }'
 ```
 
 Execute a process (sync):
 ```bash
 curl -X POST "http://localhost:8000/processes/simple_process/execution" \
      -H "Content-Type: application/json" \
+     -H "Prefer: respond-sync" \
      -d '{
        "inputs": {
          "input_text": "hello world"
-       },
-       "mode": "sync"
-     }'
+       }'
 ```
 
 ### API Endpoints
