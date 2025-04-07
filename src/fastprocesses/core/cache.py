@@ -48,6 +48,8 @@ class Cache:
         self._redis.delete(key)
 
     def _make_key(self, key: str) -> str:
+        if isinstance(key, bytes):
+            key = key.decode("utf-8")  # Decode bytes to string
         return f"{self._key_prefix}:{key}"
 
     def keys(self, pattern: str = "*") -> list[str]:
