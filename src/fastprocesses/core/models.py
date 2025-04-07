@@ -1,11 +1,18 @@
 import hashlib
 import json
 from datetime import datetime
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
-from enum import StrEnum
+
 from fastapi.encoders import jsonable_encoder
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, computed_field, field_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    field_validator,
+)
 
 
 class Link(BaseModel):
@@ -88,6 +95,7 @@ class ProcessOutput(BaseModel):
         populate_by_name=True,
         exclude_none=True,
     )
+
 
 class ProcessSummary(BaseModel):
     """
@@ -196,12 +204,14 @@ class JobList(BaseModel):
     jobs: List[JobStatusInfo]
     links: List[Link]
 
+
 class JobStatusCode(StrEnum):
     """
     Job status codes for the OGC API Processes.
     """
-    PENDING = "pending",
+
+    ACCEPTED = "accepted",
     RUNNING = "running",
-    COMPLETED = "completed",
+    SUCCESSFUL = "successful",
     FAILED = "failed",
-    CANCELLED = "cancelled"
+    DISMISSED = "dismissed"
