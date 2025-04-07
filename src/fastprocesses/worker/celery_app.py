@@ -1,35 +1,32 @@
 # worker/celery_app.py
 import asyncio
-from datetime import datetime, timezone
 import json
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from celery import Task
+from celery.exceptions import SoftTimeLimitExceeded
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 
 from fastprocesses.common import celery_app, redis_cache
 from fastprocesses.core.logging import logger
-from fastprocesses.core.models import CalculationTask, JobStatusCode, JobStatusInfo
+from fastprocesses.core.models import CalculationTask, JobStatusCode, JobStatusInfo, Link
 from fastprocesses.processes.process_registry import get_process_registry
-
-from celery.exceptions import SoftTimeLimitExceeded
 
 # NOTE: Cache hash key is based on original unprocessed inputs always
 # this ensures consistent caching and cache retrieval
 # which does not depend on arbitrary processed data, which can change
 # when the process is updated or changed!
 
+
 class CacheResultTask(Task):
-    def on_success(
-            self, retval: dict | BaseModel,
-            task_id, args, kwargs
-    ):
+    def on_success(self, retval: dict | BaseModel, task_id, args, kwargs):
         try:
             # Deserialize the original data
             original_data = json.loads(args[1])
             calculation_task = CalculationTask(**original_data)
-            
+
             # Get the the hash key for the task
             key = calculation_task.celery_key
 
@@ -44,7 +41,6 @@ class CacheResultTask(Task):
 
 @celery_app.task(bind=True, name="execute_process", base=CacheResultTask)
 def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
-
     data = json.loads(serialized_data)
 
     logger.info(f"Executing process {process_id} with data {data}")
@@ -54,11 +50,20 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
     def update_progress(progress: int, message: str = None, status: str | None = None):
         job_key = f"job:{job_id}"
         job_info = JobStatusInfo.model_validate(redis_cache.get(job_key))
-        
+
         job_info.status = status or JobStatusCode.RUNNING
         job_info.progress = progress
         job_info.updated = datetime.now(timezone.utc)
 
+        if status == JobStatusCode.SUCCESSFUL:
+            job_info.finished = datetime.now(timezone.utc)
+            job_info.links.append(
+                Link.model_validate({
+                    "href": f"/jobs/{job_info.jobID}/results",
+                    "rel": "results",
+                    "type": "application/json"
+                })
+            )
 
         if message:
             job_info.message = message
@@ -93,8 +98,9 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
 
             logger.info(f"Process {process_id} completed after soft time limit")
             update_progress(
-                100, "Process completed after soft time limit",
-                status=JobStatusCode.COMPLETED
+                100,
+                "Process completed after soft time limit",
+                status=JobStatusCode.SUCCESSFUL,
             )
             return result
 
@@ -107,10 +113,7 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
     except Exception as e:
         # Update job with error status
 
-        update_progress(
-            100, "Process completed",
-            status=JobStatusCode.FAILED
-        )
+        update_progress(100, "Process completed", status=JobStatusCode.FAILED)
 
         logger.error(f"Error executing process {process_id}: {e}")
         raise
@@ -122,12 +125,10 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
     )
 
     # Mark job as complete
-    update_progress(
-        100, "Process completed",
-        status=JobStatusCode.COMPLETED
-    )
+    update_progress(100, "Process completed", status=JobStatusCode.SUCCESSFUL)
 
     return result
+
 
 @celery_app.task(name="check_cache")
 def check_cache(calculation_task: Dict[str, Any]) -> Dict[str, Any]:
