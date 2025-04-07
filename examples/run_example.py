@@ -84,7 +84,7 @@ class SimpleProcess(BaseProcess):
             progress_callback(30, "Converting text")
 
         await asyncio.sleep(0.5)  # Simulate work
-        output_text = text_model.input_text.get("one").upper()
+        output_text = text_model.input_text.upper()
         output_model = TextModelOut(output_text=output_text)
 
         if progress_callback:
