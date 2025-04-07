@@ -37,6 +37,7 @@ class ProcessRegistry:
         """
         try:
             description: ProcessDescription = process.get_description()
+            version = description.version  # Assume version is part of the description
 
             # serialize the description
             description_dict = description.model_dump(exclude_none=True)
@@ -46,12 +47,17 @@ class ProcessRegistry:
             }
             logger.debug(f"Process data to be registered: {process_data}")
 
+            # Use a versioned key
+            process_versioned_key = f"{process_id}:{version}"
             result = self.redis.hset(
-                self.registry_key, process_id, json.dumps(process_data)
+                self.registry_key, process_versioned_key, json.dumps(process_data)
             )
 
             logger.debug(f"Redis hset result: {result}")
-            logger.info(f"Process {process_id} registered successfully")
+            logger.info(
+                f"Process {process_id} (version {version}) "
+                "registered successfully"
+            )
 
         except redis.RedisError as e:
             logger.error(f"Failed to write to Redis: {e}")
@@ -71,7 +77,7 @@ class ProcessRegistry:
         logger.debug("Retrieving all registered process IDs")
         return [key.decode("utf-8") for key in self.redis.hkeys(self.registry_key)]
 
-    def has_process(self, process_id: str) -> bool:
+    def has_process(self, process_id: str, version: str | None = None) -> bool:
         """
         Checks if a process is registered.
 
@@ -82,29 +88,67 @@ class ProcessRegistry:
             bool: True if the process is registered, False otherwise.
         """
         logger.debug(f"Checking if process with ID {process_id} is registered")
-        return self.redis.hexists(self.registry_key, process_id)
-
-    def get_process(self, process_id: str) -> BaseProcess:
+        
+        if version:
+            # Check for a specific version
+            versioned_key = f"{process_id}:{version}"
+            return self.redis.hexists(self.registry_key, versioned_key)
+        else:
+            # Check for any version
+            keys = [key.decode("utf-8") for key in self.redis.hkeys(self.registry_key)]
+            return any(key.startswith(f"{process_id}:") for key in keys)
+    def get_process_versions(self, process_id: str) -> List[str]:
         """
-        Dynamically loads and instantiates a process process:
-        1. Retrieves process metadata from Redis
+        Retrieves all versions of a specific process.
+
+        Args:
+            process_id (str): The ID of the process.
+
+        Returns:
+            List[str]: A list of versions for the given process ID.
+        """
+        logger.debug(f"Retrieving all versions for process ID: {process_id}")
+        keys = [key.decode("utf-8") for key in self.redis.hkeys(self.registry_key)]
+        versions = [
+            key.split(":")[1] for key in keys if key.startswith(f"{process_id}:")
+        ]
+        return versions
+
+    def get_process(self, process_id: str, version: str | None = None) -> BaseProcess:
+        """
+        Dynamically loads and instantiates a process service:
+        1. Retrieves service metadata from Redis
         2. Uses Python's module system to locate the class
-        3. Instantiates a new process instance
+        3. Instantiates a new service instance
 
-        The locate() function dynamically imports the class based on its path.
+        Args:
+            process_id (str): The ID of the process.
+            version (str): The version of the process. If None, defaults to the latest version.
+
+        Returns:
+            BaseProcess: The instantiated process (latest or version).
         """
-        logger.info(f"Retrieving process with ID: {process_id}")
-        process_data = self.redis.hget(self.registry_key, process_id)
+        if version is None:
+            # Default to the latest version
+            versions = self.get_process_versions(process_id)
+            if not versions:
+                raise ValueError(f"No versions found for process {process_id}")
+        
+            version = sorted(versions)[-1]  # Assume versions are sortable (e.g., semantic versioning)
+
+        logger.info(f"Retrieving process with ID: {process_id}, version: {version}")
+        versioned_key = f"{process_id}:{version}"
+        process_data = self.redis.hget(self.registry_key, versioned_key)
 
         if not process_data:
-            logger.error(f"Process {process_id} not found!")
-            raise ValueError(f"Process {process_id} not found!")
+            logger.error(f"Process {process_id} (version {version}) not found!")
 
         process_info = json.loads(process_data)
         process_class = locate(process_info["class_path"])
 
         logger.debug(
-            f"Class path for Process {process_id}: {process_info['class_path']}"
+            f"Class path for service {process_id} "
+            f"(version {version}): {process_info['class_path']}"
         )
 
         if not process_class:
