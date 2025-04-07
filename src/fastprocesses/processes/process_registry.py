@@ -1,4 +1,4 @@
-# src/fastprocesses/services/service_registry.py
+# src/fastprocesses/processes/process_registry.py
 import json
 from pydoc import locate
 from typing import List
@@ -15,7 +15,7 @@ from fastprocesses.core.models import ProcessDescription
 
 
 class ProcessRegistry:
-    """Manages the registration and retrieval of available services (processes)."""
+    """Manages the registration and retrieval of available processs (processes)."""
 
     def __init__(self):
         """Initializes the ProcessRegistry with Redis connection."""
@@ -26,28 +26,28 @@ class ProcessRegistry:
             retry_on_error=[ConnectionError, TimeoutError, ConnectionResetError],
             health_check_interval=1,
         )
-        self.registry_key = "service_registry"
+        self.registry_key = "process_registry"
 
-    def register_process(self, process_id: str, service: BaseProcess):
+    def register_process(self, process_id: str, process: BaseProcess):
         """
-        Registers a process service in Redis:
+        Registers a process process in Redis:
         - Stores process description and class path for dynamic loading
         - Uses Redis hash structure for efficient lookups
-        - Enables service discovery and instantiation
+        - Enables process discovery and instantiation
         """
         try:
-            description: ProcessDescription = service.get_description()
+            description: ProcessDescription = process.get_description()
 
             # serialize the description
             description_dict = description.model_dump(exclude_none=True)
-            service_data = {
+            process_data = {
                 "description": description_dict,
-                "class_path": f"{service.__module__}.{service.__class__.__name__}",
+                "class_path": f"{process.__module__}.{process.__class__.__name__}",
             }
-            logger.debug(f"Process data to be registered: {service_data}")
+            logger.debug(f"Process data to be registered: {process_data}")
 
             result = self.redis.hset(
-                self.registry_key, process_id, json.dumps(service_data)
+                self.registry_key, process_id, json.dumps(process_data)
             )
 
             logger.debug(f"Redis hset result: {result}")
@@ -58,60 +58,59 @@ class ProcessRegistry:
             raise
 
         except Exception as e:
-            logger.error(f"Failed to register service {process_id}: {e}")
+            logger.error(f"Failed to register process {process_id}: {e}")
             raise
 
     def get_process_ids(self) -> List[str]:
         """
-        Retrieves the IDs of all registered services.
+        Retrieves the IDs of all registered processes.
 
         Returns:
-            List[str]: A list of service IDs.
+            List[str]: A list of process IDs.
         """
-        logger.debug("Retrieving all registered service IDs")
+        logger.debug("Retrieving all registered process IDs")
         return [key.decode("utf-8") for key in self.redis.hkeys(self.registry_key)]
 
     def has_process(self, process_id: str) -> bool:
         """
-        Checks if a service is registered.
+        Checks if a process is registered.
 
         Args:
             process_id (str): The ID of the process.
 
         Returns:
-            bool: True if the service is registered, False otherwise.
+            bool: True if the process is registered, False otherwise.
         """
-        logger.debug(f"Checking if service with ID {process_id} is registered")
+        logger.debug(f"Checking if process with ID {process_id} is registered")
         return self.redis.hexists(self.registry_key, process_id)
 
     def get_process(self, process_id: str) -> BaseProcess:
         """
-        Dynamically loads and instantiates a process service:
-        1. Retrieves service metadata from Redis
+        Dynamically loads and instantiates a process process:
+        1. Retrieves process metadata from Redis
         2. Uses Python's module system to locate the class
-        3. Instantiates a new service instance
+        3. Instantiates a new process instance
 
         The locate() function dynamically imports the class based on its path.
         """
-        logger.info(f"Retrieving service with ID: {process_id}")
-        service_data = self.redis.hget(self.registry_key, process_id)
+        logger.info(f"Retrieving process with ID: {process_id}")
+        process_data = self.redis.hget(self.registry_key, process_id)
 
-        if not service_data:
-            logger.error(f"Service {process_id} not found!")
-            raise ValueError(f"Service {process_id} not found!")
+        if not process_data:
+            logger.error(f"Process {process_id} not found!")
+            raise ValueError(f"Process {process_id} not found!")
 
-        service_info = json.loads(service_data)
-        service_class = locate(service_info["class_path"])
+        process_info = json.loads(process_data)
+        process_class = locate(process_info["class_path"])
 
         logger.debug(
-            f"Class path for service {process_id}: {service_info['class_path']}"
+            f"Class path for Process {process_id}: {process_info['class_path']}"
         )
 
-        if not service_class:
-            logger.error(f"Service class {service_info['class_path']} not found!")
-            # raise ValueError(f"Service class {service_info['class_path']} not found!")
+        if not process_class:
+            logger.error(f"Process class {process_info['class_path']} not found!")
 
-        return service_class()
+        return process_class()
 
 
 # Global instance of ProcessRegistry
