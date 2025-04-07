@@ -153,7 +153,7 @@ def get_router(
     async def list_jobs(
         limit: int = Query(10, ge=1, le=1000),
         offset: int = Query(0, ge=0)
-    ):
+    ) -> JobList:
         """
         Lists all jobs.
         """
