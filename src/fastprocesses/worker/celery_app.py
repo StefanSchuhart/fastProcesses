@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from fastprocesses.common import celery_app, redis_cache
 from fastprocesses.core.logging import logger
-from fastprocesses.core.models import CalculationTask
+from fastprocesses.core.models import CalculationTask, JobStatusCode, JobStatusInfo
 from fastprocesses.processes.process_registry import get_process_registry
 
 from celery.exceptions import SoftTimeLimitExceeded
@@ -51,21 +51,17 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
     job_id = self.request.id  # Get the task/job ID
 
     # Create a progress update function that captures the job_id
-    def update_progress(progress: int, message: str = None):
+    def update_progress(progress: int, message: str = None, status: str | None = None):
         job_key = f"job:{job_id}"
-        job_info = redis_cache.get(job_key) or {}
+        job_info = JobStatusInfo.model_validate(redis_cache.get(job_key))
+        
+        job_info.status = status or JobStatusCode.RUNNING
+        job_info.progress = progress
+        job_info.updated = datetime.now(timezone.utc)
 
-        job_info.update(
-            {
-                "status": "running",
-                "progress": progress,
-                "updated": datetime.now(timezone.utc),
-                "process_id": process_id,
-            }
-        )
 
         if message:
-            job_info["message"] = message
+            job_info.message = message
 
         redis_cache.put(job_key, job_info)
         logger.debug(f"Updated progress for job {job_id}: {progress}%, {message}")
@@ -96,8 +92,12 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
                 result = service.execute(data)
 
             logger.info(f"Process {process_id} completed after soft time limit")
-            update_progress(100, "Process completed after soft time limit")
+            update_progress(
+                100, "Process completed after soft time limit",
+                status=JobStatusCode.COMPLETED
+            )
             return result
+
         except Exception as inner_exception:
             logger.error(
                 f"Error while completing task after soft time limit: {inner_exception}"
@@ -106,17 +106,11 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
 
     except Exception as e:
         # Update job with error status
-        job_key = f"job:{job_id}"
-        job_info = redis_cache.get(job_key) or {}
-        job_info.update(
-            {
-                "status": "failed",
-                "message": str(e),
-                "updated": datetime.now(timezone.utc),
-                "process_id": process_id,
-            }
+
+        update_progress(
+            100, "Process completed",
+            status=JobStatusCode.FAILED
         )
-        redis_cache.put(job_key, job_info)
 
         logger.error(f"Error executing process {process_id}: {e}")
         raise
@@ -128,7 +122,10 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
     )
 
     # Mark job as complete
-    update_progress(100, "Process completed")
+    update_progress(
+        100, "Process completed",
+        status=JobStatusCode.COMPLETED
+    )
 
     return result
 
