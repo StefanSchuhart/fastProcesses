@@ -40,7 +40,9 @@ class AsyncExecutionStrategy(ExecutionStrategy):
     3. Returning immediately with job ID
     """
     
-    def execute(self, process_id: str, calculation_task: CalculationTask) -> ProcessExecResponse:
+    def execute(
+            self, process_id: str, calculation_task: CalculationTask
+    ) -> ProcessExecResponse:
 
         # dump data to json
         serialized_data = json.dumps(calculation_task.model_dump(
@@ -148,7 +150,12 @@ class ProcessManager:
         service = self.service_registry.get_service(process_id)
         return service.get_description()
 
-    def execute_process(self, process_id: str, data: ProcessExecRequestBody) -> ProcessExecResponse:
+    def execute_process(
+            self,
+            process_id: str,
+            data: ProcessExecRequestBody,
+            execution_mode: ExecutionMode
+        ) -> ProcessExecResponse:
         """
         Main process execution orchestration:
         1. Validates process existence and input data
@@ -208,7 +215,10 @@ class ProcessManager:
             ExecutionMode.ASYNC: AsyncExecutionStrategy(self)
         }
         
-        strategy: SyncExecutionStrategy | AsyncExecutionStrategy = execution_strategies[data.mode]
+        strategy: (
+            SyncExecutionStrategy | AsyncExecutionStrategy
+        ) = execution_strategies[execution_mode]
+
         return strategy.execute(process_id, calculation_task)
 
     def get_job_status(self, job_id: str) -> Dict[str, Any]:

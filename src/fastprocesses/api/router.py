@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, HTTPException, Header, Query, Response, status
 from fastapi.responses import JSONResponse
 
 from fastprocesses.api.manager import ProcessManager
@@ -89,14 +89,25 @@ def get_router(
     async def execute_process(
         process_id: str,
         request: ProcessExecRequestBody,
-        response: Response
+        response: Response,
+        prefer: str = Header(None, alias="Prefer")
     ) -> JSONResponse:
         logger.debug(f"Execute process endpoint accessed for process ID: {process_id}")
+        
+        execution_mode = ExecutionMode.ASYNC
+        if prefer and "respond-sync" in prefer:
+            execution_mode = ExecutionMode.SYNC
+        
+        logger.debug(f"Execution mode set to: {execution_mode}")
+
         try:
-            result = process_manager.execute_process(process_id, request)
+            result = process_manager.execute_process(
+                process_id, request,
+                execution_mode
+            )
             
             # Set response status code based on execution mode
-            if request.mode == ExecutionMode.ASYNC:
+            if execution_mode == ExecutionMode.ASYNC:
                 response.status_code = status.HTTP_201_CREATED
                 # Add Location header for async execution
                 response.headers["Location"] = f"/jobs/{result.jobID}"
@@ -107,6 +118,7 @@ def get_router(
                 # For sync execution without results
                 else:
                     response.status_code = status.HTTP_204_NO_CONTENT
+                    # TODO: need to add link headers with location to output
             
             return result
         except ValueError as e:
@@ -122,6 +134,7 @@ def get_router(
                         "process_id": process_id
                     }
                 )
+
             logger.error(f"Process {process_id} not found: {error_message}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
