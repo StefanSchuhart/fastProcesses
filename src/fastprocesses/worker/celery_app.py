@@ -11,7 +11,12 @@ from pydantic import BaseModel
 
 from fastprocesses.common import celery_app, redis_cache
 from fastprocesses.core.logging import logger
-from fastprocesses.core.models import CalculationTask, JobStatusCode, JobStatusInfo, Link
+from fastprocesses.core.models import (
+    CalculationTask,
+    JobStatusCode,
+    JobStatusInfo,
+    Link,
+)
 from fastprocesses.processes.process_registry import get_process_registry
 
 # NOTE: Cache hash key is based on original unprocessed inputs always
@@ -58,11 +63,13 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
         if status == JobStatusCode.SUCCESSFUL:
             job_info.finished = datetime.now(timezone.utc)
             job_info.links.append(
-                Link.model_validate({
-                    "href": f"/jobs/{job_info.jobID}/results",
-                    "rel": "results",
-                    "type": "application/json"
-                })
+                Link.model_validate(
+                    {
+                        "href": f"/jobs/{job_info.jobID}/results",
+                        "rel": "results",
+                        "type": "application/json",
+                    }
+                )
             )
 
         if message:
@@ -75,7 +82,7 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
         # Initialize progress
         update_progress(0, "Starting process")
 
-        service = get_process_registry().get_service(process_id)
+        service = get_process_registry().get_process(process_id)
 
         if asyncio.iscoroutinefunction(service.execute):
             result = asyncio.run(

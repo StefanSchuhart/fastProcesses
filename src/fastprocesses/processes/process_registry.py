@@ -4,9 +4,8 @@ from pydoc import locate
 from typing import List
 
 import redis
-from redis.exceptions import (TimeoutError, ConnectionError)
 from redis.backoff import ExponentialBackoff
-
+from redis.exceptions import ConnectionError, TimeoutError
 from redis.retry import Retry
 
 from fastprocesses.core.base_process import BaseProcess
@@ -20,15 +19,12 @@ class ProcessRegistry:
 
     def __init__(self):
         """Initializes the ProcessRegistry with Redis connection."""
-        self.retry = Retry(
-            ExponentialBackoff(cap=10, base=1),
-            -1
-        )
+        self.retry = Retry(ExponentialBackoff(cap=10, base=1), -1)
         self.redis = redis.Redis.from_url(
             str(settings.results_cache.connection),
             retry=self.retry,
             retry_on_error=[ConnectionError, TimeoutError, ConnectionResetError],
-            health_check_interval=1
+            health_check_interval=1,
         )
         self.registry_key = "service_registry"
 
@@ -88,7 +84,7 @@ class ProcessRegistry:
         logger.debug(f"Checking if service with ID {process_id} is registered")
         return self.redis.hexists(self.registry_key, process_id)
 
-    def get_service(self, process_id: str) -> BaseProcess:
+    def get_process(self, process_id: str) -> BaseProcess:
         """
         Dynamically loads and instantiates a process service:
         1. Retrieves service metadata from Redis
