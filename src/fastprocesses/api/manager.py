@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from typing import Any, Dict, List, Tuple
 
@@ -10,6 +10,8 @@ from fastprocesses.core.logging import logger
 from fastprocesses.core.models import (
     CalculationTask,
     ExecutionMode,
+    JobStatusInfo,
+    Link,
     ProcessDescription,
     ProcessExecRequestBody,
     ProcessExecResponse,
@@ -56,15 +58,16 @@ class AsyncExecutionStrategy(ExecutionStrategy):
         )
 
         # Initialize job metadata in cache with status 'accepted'
-        job_info = {
+        job_status = JobStatusInfo.model_validate({
+            "jobID": task.id,
             "status": "accepted",
             "type": "process",
             "process_id": process_id,
-            "created": datetime.utcnow().isoformat(),
-            "updated": datetime.utcnow().isoformat(),
+            "created": datetime.now(timezone.utc),
+            "updated": datetime.now(timezone.utc),
             "progress": 0
-        }
-        self.process_manager.cache.put(f"job:{task.id}", job_info)
+        })
+        self.process_manager.cache.put(f"job:{task.id}", job_status)
         
         return ProcessExecResponse(status="accepted", jobID=task.id, type="process")
 
@@ -81,20 +84,20 @@ class SyncExecutionStrategy(ExecutionStrategy):
             args=[process_id, calculation_task.celery_key, result]
         )
         
-        job_info = {
-            "status": "successful",
+        job_status = JobStatusInfo.model_validate({
+            "jobID": task.id,
+            "status": "accepted",
             "type": "process",
             "process_id": process_id,
-            "created": datetime.utcnow().isoformat(),
-            "started": datetime.utcnow().isoformat(),
-            "finished": datetime.utcnow().isoformat(),
-            "updated": datetime.utcnow().isoformat(),
-            "progress": 100,
-            "result": result
-        }
-        self.process_manager.cache.put(f"job:{task.id}", job_info)
+            "created": datetime.now(timezone.utc),
+            "updated": datetime.now(timezone.utc),
+            "progress": 0
+        })
+        self.process_manager.cache.put(f"job:{task.id}", job_status)
         
-        return ProcessExecResponse(status="successful", jobID=task.id, type="process", value=result)
+        return ProcessExecResponse(
+            status="successful", jobID=task.id, type="process", value=result
+        )
 
 class ProcessManager:
     """Manages processes, including execution, status checking, and job management."""
@@ -314,36 +317,26 @@ class ProcessManager:
 
         for job_key in job_keys[offset:offset+limit]:
             try:
-                job_info = self.cache.get(job_key)
+                job_info = JobStatusInfo.model_validate(self.cache.get(job_key))
                 if job_info:
                     # Remove "job:" prefix for consistent job ID handling
-                    job_id = job_key.replace("job:", "")
-                    status_info = {
-                        "jobID": job_id,  # Clean job ID without prefix
-                        "status": job_info.get("status", "unknown"),
-                        "type": "process",
-                        "processID": job_info.get("process_id"),
-                        "created": job_info.get("created"),
-                        "started": job_info.get("started"),
-                        "finished": job_info.get("finished"),
-                        "updated": job_info.get("updated"),
-                        "progress": job_info.get("progress"),
-                        "links": [
-                            {
+                    job_id = job_key.replace(b"job:", b"").decode("utf-8")
+
+                    # TODO: serve link only if job was successful 
+                    job_info.links.extend([
+                            Link.model_validate({
                                 "href": f"/jobs/{job_id}",  # Clean job ID in links
                                 "rel": "self",
                                 "type": "application/json"
-                            },
-                            {
+                            }),
+                            Link.model_validate({
                                 "href": f"/jobs/{job_id}/results",  # Clean job ID in links
                                 "rel": "results",
                                 "type": "application/json"
-                            }
-                        ]
-                    }
-                    if "message" in job_info:
-                        status_info["message"] = job_info["message"]
-                    jobs.append(status_info)
+                            })
+                        ])
+
+                    jobs.append(job_info)
             except Exception as e:
                 logger.error(f"Error retrieving job {job_key}: {e}")
 
