@@ -3,7 +3,7 @@ import json
 from datetime import datetime
 from enum import Enum
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
-
+from enum import StrEnum
 from fastapi.encoders import jsonable_encoder
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, computed_field, field_validator
 
@@ -187,7 +187,7 @@ class JobStatusInfo(BaseModel):
     finished: Optional[datetime] = None
     updated: Optional[datetime] = None
     progress: Optional[int] = Field(None, ge=0, le=100)
-    links: Optional[List[Link]] = None
+    links: Optional[List[Link]] = []
 
     model_config = ConfigDict(populate_by_name=True, exclude_none=True)
 
@@ -195,3 +195,13 @@ class JobStatusInfo(BaseModel):
 class JobList(BaseModel):
     jobs: List[JobStatusInfo]
     links: List[Link]
+
+class JobStatusCode(StrEnum):
+    """
+    Job status codes for the OGC API Processes.
+    """
+    PENDING = "pending",
+    RUNNING = "running",
+    COMPLETED = "completed",
+    FAILED = "failed",
+    CANCELLED = "cancelled"
