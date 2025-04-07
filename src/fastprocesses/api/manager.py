@@ -10,6 +10,7 @@ from fastprocesses.core.logging import logger
 from fastprocesses.core.models import (
     CalculationTask,
     ExecutionMode,
+    JobStatusCode,
     JobStatusInfo,
     Link,
     ProcessDescription,
@@ -356,16 +357,17 @@ class ProcessManager:
                 args=[calculation_task.celery_key]
             )
             
-            job_info = {
-                "status": "successful",
+            job_info = JobStatusInfo.model_validate({
+                "jobID": task.id,
+                "status": JobStatusCode.COMPLETED,
                 "type": "process",
-                "created": datetime.utcnow().isoformat(),
-                "started": datetime.utcnow().isoformat(),
-                "finished": datetime.utcnow().isoformat(),
-                "updated": datetime.utcnow().isoformat(),
+                "created": datetime.now(timezone.utc),
+                "started": datetime.now(timezone.utc),
+                "finished": datetime.now(timezone.utc),
+                "updated": datetime.now(timezone.utc),
                 "progress": 100,
                 "message": "Result retrieved from cache"
-            }
+            })
             self.cache.put(f"job:{task.id}", job_info)
         
             return ProcessExecResponse(status="successful", jobID=task.id, type="process")
