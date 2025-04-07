@@ -66,7 +66,14 @@ class AsyncExecutionStrategy(ExecutionStrategy):
             "process_id": process_id,
             "created": datetime.now(timezone.utc),
             "updated": datetime.now(timezone.utc),
-            "progress": 0
+            "progress": 0,
+            "links": [
+                Link.model_validate({
+                    "href": f"/jobs/{task.id}",
+                    "rel": "self",
+                    "type": "application/json"
+                })
+            ]
         })
         self.process_manager.cache.put(f"job:{task.id}", job_status)
         
@@ -87,12 +94,20 @@ class SyncExecutionStrategy(ExecutionStrategy):
         
         job_status = JobStatusInfo.model_validate({
             "jobID": task.id,
-            "status": "accepted",
+            "status": JobStatusCode.ACCEPTED,
             "type": "process",
             "process_id": process_id,
             "created": datetime.now(timezone.utc),
             "updated": datetime.now(timezone.utc),
-            "progress": 0
+            "progress": 0,
+            "links": [
+                Link.model_validate({
+                    "href": f"/jobs/{task.id}",
+                    "rel": "self",
+                    "type": "application/json"
+                })
+            ]
+
         })
         self.process_manager.cache.put(f"job:{task.id}", job_status)
         
@@ -359,14 +374,26 @@ class ProcessManager:
             
             job_info = JobStatusInfo.model_validate({
                 "jobID": task.id,
-                "status": JobStatusCode.COMPLETED,
+                "status": JobStatusCode.SUCCESSFUL,
                 "type": "process",
                 "created": datetime.now(timezone.utc),
                 "started": datetime.now(timezone.utc),
                 "finished": datetime.now(timezone.utc),
                 "updated": datetime.now(timezone.utc),
                 "progress": 100,
-                "message": "Result retrieved from cache"
+                "message": "Result retrieved from cache",
+                "links": [
+                    Link.model_validate({
+                        "href": f"/jobs/{task.id}/results",
+                        "rel": "results",
+                        "type": "application/json"
+                    }),
+                    Link.model_validate({
+                        "href": f"/jobs/{task.id}",
+                        "rel": "self",
+                        "type": "application/json"
+                    })
+                ]
             })
             self.cache.put(f"job:{task.id}", job_info)
         
