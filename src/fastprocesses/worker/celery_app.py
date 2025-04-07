@@ -45,10 +45,21 @@ class CacheResultTask(Task):
 
 
 @celery_app.task(bind=True, name="execute_process", base=CacheResultTask)
-def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
+def execute_process(self, process_id: str, version: str, serialized_data: Dict[str, Any]):
+    """
+    Executes a process with the given process ID and version.
+
+    Args:
+        process_id (str): The ID of the process to execute.
+        version (str): The version of the process to execute.
+        serialized_data (Dict[str, Any]): The serialized input data for the process.
+
+    Returns:
+        Any: The result of the process execution.
+    """
     data = json.loads(serialized_data)
 
-    logger.info(f"Executing process {process_id} with data {data}")
+    logger.info(f"Executing process {process_id} (version {version}) with data {data}")
     job_id = self.request.id  # Get the task/job ID
 
     # Create a progress update function that captures the job_id
@@ -82,7 +93,8 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
         # Initialize progress
         update_progress(0, "Starting process")
 
-        service = get_process_registry().get_process(process_id)
+        # Retrieve the correct version of the process
+        service = get_process_registry().get_process(process_id, version)
 
         if asyncio.iscoroutinefunction(service.execute):
             result = asyncio.run(
