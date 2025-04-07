@@ -28,7 +28,7 @@ class ProcessRegistry:
         )
         self.registry_key = "service_registry"
 
-    def register_service(self, process_id: str, service: BaseProcess):
+    def register_process(self, process_id: str, service: BaseProcess):
         """
         Registers a process service in Redis:
         - Stores process description and class path for dynamic loading
@@ -138,7 +138,7 @@ def register_process(process_id: str):
             raise ValueError(
                 f"Process {cls.__name__} must define a 'description' class variable"
             )
-        get_process_registry().register_service(process_id, cls())
+        get_process_registry().register_process(process_id, cls())
         return cls
 
     return decorator
