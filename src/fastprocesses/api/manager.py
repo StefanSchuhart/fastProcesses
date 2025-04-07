@@ -319,24 +319,8 @@ class ProcessManager:
             try:
                 job_info = JobStatusInfo.model_validate(self.cache.get(job_key))
                 if job_info:
-                    # Remove "job:" prefix for consistent job ID handling
-                    job_id = job_key.replace(b"job:", b"").decode("utf-8")
-
-                    # TODO: serve link only if job was successful 
-                    job_info.links.extend([
-                            Link.model_validate({
-                                "href": f"/jobs/{job_id}",  # Clean job ID in links
-                                "rel": "self",
-                                "type": "application/json"
-                            }),
-                            Link.model_validate({
-                                "href": f"/jobs/{job_id}/results",  # Clean job ID in links
-                                "rel": "results",
-                                "type": "application/json"
-                            })
-                        ])
-
                     jobs.append(job_info)
+
             except Exception as e:
                 logger.error(f"Error retrieving job {job_key}: {e}")
 
@@ -346,7 +330,9 @@ class ProcessManager:
 
         return jobs, next_link
 
-    def _check_cache(self, calculation_task: CalculationTask) -> ProcessExecResponse | None:
+    def _check_cache(
+            self, calculation_task: CalculationTask
+    ) -> ProcessExecResponse | None:
         """
         Optimizes performance by checking if identical calculation exists in cache.
         Uses task input hash as cache key.
@@ -363,24 +349,25 @@ class ProcessManager:
         )
         
         cache_status = cache_check.get(timeout=10)
-        if cache_status["status"] != "HIT":
-            return None
+        if cache_status["status"] == "HIT":
             
-        task = self.celery_app.send_task(
-            'find_result_in_cache',
-            args=[calculation_task.celery_key]
-        )
+            task = self.celery_app.send_task(
+                'find_result_in_cache',
+                args=[calculation_task.celery_key]
+            )
+            
+            job_info = {
+                "status": "successful",
+                "type": "process",
+                "created": datetime.utcnow().isoformat(),
+                "started": datetime.utcnow().isoformat(),
+                "finished": datetime.utcnow().isoformat(),
+                "updated": datetime.utcnow().isoformat(),
+                "progress": 100,
+                "message": "Result retrieved from cache"
+            }
+            self.cache.put(f"job:{task.id}", job_info)
         
-        job_info = {
-            "status": "successful",
-            "type": "process",
-            "created": datetime.utcnow().isoformat(),
-            "started": datetime.utcnow().isoformat(),
-            "finished": datetime.utcnow().isoformat(),
-            "updated": datetime.utcnow().isoformat(),
-            "progress": 100,
-            "message": "Result retrieved from cache"
-        }
-        self.cache.put(f"job:{task.id}", job_info)
-        
-        return ProcessExecResponse(status="successful", jobID=task.id, type="process")
+            return ProcessExecResponse(status="successful", jobID=task.id, type="process")
+
+        return None
