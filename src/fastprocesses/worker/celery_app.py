@@ -5,6 +5,7 @@ import json
 from typing import Any, Dict
 
 from celery import Task
+from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 
 from fastprocesses.common import celery_app, redis_cache
@@ -85,15 +86,6 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
         else:
             result = service.execute(data)
 
-        logger.info(
-            f"Process {process_id} executed "
-            f"successfully with result {json.dumps(result)[:80]}"
-        )
-
-        # Mark job as complete
-        update_progress(100, "Process completed")
-
-        return result
     except SoftTimeLimitExceeded as e:
         logger.warning(f"Task {job_id} hit the soft time limit: {e}")
         # Attempt to resume the process
@@ -129,6 +121,16 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
         logger.error(f"Error executing process {process_id}: {e}")
         raise
 
+    result_dump = jsonable_encoder(result)
+    logger.info(
+        f"Process {process_id} executed "
+        f"successfully with result {json.dumps(result_dump)[:80]}"
+    )
+
+    # Mark job as complete
+    update_progress(100, "Process completed")
+
+    return result
 
 @celery_app.task(name="check_cache")
 def check_cache(calculation_task: Dict[str, Any]) -> Dict[str, Any]:
