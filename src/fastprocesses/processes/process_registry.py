@@ -61,7 +61,7 @@ class ProcessRegistry:
             logger.error(f"Failed to register service {process_id}: {e}")
             raise
 
-    def get_service_ids(self) -> List[str]:
+    def get_process_ids(self) -> List[str]:
         """
         Retrieves the IDs of all registered services.
 
@@ -71,7 +71,7 @@ class ProcessRegistry:
         logger.debug("Retrieving all registered service IDs")
         return [key.decode("utf-8") for key in self.redis.hkeys(self.registry_key)]
 
-    def has_service(self, process_id: str) -> bool:
+    def has_process(self, process_id: str) -> bool:
         """
         Checks if a service is registered.
 

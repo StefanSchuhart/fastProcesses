@@ -90,9 +90,9 @@ class SyncExecutionStrategy(ExecutionStrategy):
     def execute(
         self, process_id: str, calculation_task: CalculationTask
     ) -> ProcessExecResponse:
-        service = self.process_manager.service_registry.get_process(process_id)
+        process = self.process_manager.process_registry.get_process(process_id)
         # TODO: response type and outputs must be passed, too
-        result = service.execute(calculation_task.inputs)
+        result = process.execute(calculation_task.inputs)
 
         task = self.process_manager.celery_app.send_task(
             "store_result", args=[process_id, calculation_task.celery_key, result]
@@ -129,9 +129,9 @@ class ProcessManager:
     """Manages processes, including execution, status checking, and job management."""
 
     def __init__(self):
-        """Initializes the ProcessManager with Celery app and service registry."""
+        """Initializes the ProcessManager with Celery app and process registry."""
         self.celery_app = celery_app
-        self.service_registry = get_process_registry()
+        self.process_registry = get_process_registry()
         self.cache = redis_cache
 
     def get_available_processes(
@@ -144,7 +144,7 @@ class ProcessManager:
         Returns:
             List[ProcessDescription]: A list of process descriptions.
         """
-        process_ids = self.service_registry.get_service_ids()
+        process_ids = self.process_registry.get_process_ids()
 
         processes = [
             self.get_process_description(process_id)
@@ -170,11 +170,11 @@ class ProcessManager:
         Raises:
             ValueError: If the process is not found.
         """
-        if not self.service_registry.has_service(process_id):
+        if not self.process_registry.has_process(process_id):
             logger.error(f"Process {process_id} not found!")
             raise ValueError(f"Process {process_id} not found!")
 
-        service = self.service_registry.get_process(process_id)
+        service = self.process_registry.get_process(process_id)
         return service.get_description()
 
     def execute_process(
@@ -203,14 +203,14 @@ class ProcessManager:
         logger.info(f"Executing process ID: {process_id}")
 
         # Validate process exists
-        if not self.service_registry.has_service(process_id):
+        if not self.process_registry.has_process(process_id):
             logger.error(f"Process {process_id} not found!")
             raise ValueError(f"Process {process_id} not found!")
 
         logger.debug(f"Process {process_id} found in registry")
 
         # Get service and validate inputs
-        service = self.service_registry.get_process(process_id)
+        service = self.process_registry.get_process(process_id)
         try:
             service.validate_inputs(data.inputs)
         except ValueError as e:
