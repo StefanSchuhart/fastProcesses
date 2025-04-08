@@ -46,10 +46,6 @@ class CacheResultTask(Task):
 
 @celery_app.task(bind=True, name="execute_process", base=CacheResultTask)
 def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
-    data = json.loads(serialized_data)
-
-    logger.info(f"Executing process {process_id} with data {data}")
-    job_id = self.request.id  # Get the task/job ID
 
     # Create a progress update function that captures the job_id
     def update_progress(progress: int, message: str = None, status: str | None = None):
@@ -78,9 +74,15 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
         redis_cache.put(job_key, job_info)
         logger.debug(f"Updated progress for job {job_id}: {progress}%, {message}")
 
+    data = json.loads(serialized_data)
+
+    logger.info(f"Executing process {process_id} with data {data}")
+    job_id = self.request.id  # Get the task/job ID
+
+    # Initialize progress
+    update_progress(0, "Starting process")
+
     try:
-        # Initialize progress
-        update_progress(0, "Starting process")
 
         service = get_process_registry().get_process(process_id)
 
