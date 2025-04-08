@@ -1,0 +1,29 @@
+id: simple_process
+title: Simple Process
+version: "1.0.0"
+description: A simple example process
+jobControlOptions:
+  - sync-execute
+  - async-execute
+outputTransmission:
+  - value
+inputs:
+  input_text:
+    title: Input Text
+    description: Text to process
+    schema:
+      type: string
+      minLength: 1
+      maxLength: 1000
+outputs:
+  output_text:
+    title: Output Text
+    description: Processed text
+    schema:
+      type: string
+keywords:
+  - text
+  - processing
+metadata:
+  created: "2025-04-08"
+  provider: Example Organization

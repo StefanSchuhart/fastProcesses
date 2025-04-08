@@ -11,8 +11,8 @@ from pydantic import (
     ConfigDict,
     Field,
     computed_field,
-    field_validator,
 )
+import yaml
 
 
 class Link(BaseModel):
@@ -124,6 +124,22 @@ class ProcessDescription(ProcessSummary):
     inputs: Dict[str, ProcessInput]
     outputs: Dict[str, ProcessOutput]
 
+    @classmethod
+    def from_yaml(cls, file_path: str) -> "ProcessDescription":
+        """
+        Reads a YAML file and parses it into a ProcessDescription instance.
+
+        Args:
+            file_path (str): Path to the YAML file.
+
+        Returns:
+            ProcessDescription: Parsed ProcessDescription object.
+        """
+        with open(file_path, "r") as yaml_file:
+            yaml_data = yaml.safe_load(yaml_file)
+
+        # Validate and parse the YAML data into the ProcessDescription model
+        return cls.model_validate(yaml_data)
 
 class ProcessList(BaseModel):
     processes: List[ProcessSummary]
