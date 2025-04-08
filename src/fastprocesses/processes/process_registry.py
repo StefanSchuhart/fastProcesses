@@ -44,14 +44,22 @@ class ProcessRegistry:
                 "description": description_dict,
                 "class_path": f"{process.__module__}.{process.__class__.__name__}",
             }
-            logger.debug(f"Process data to be registered: {process_data}")
+            logger.debug(
+                f"Process data to be registered:"
+                f"\n{json.dumps(process_data, indent=4)}"
+            )
 
             result = self.redis.hset(
                 self.registry_key, process_id, json.dumps(process_data)
             )
 
             logger.debug(f"Redis hset result: {result}")
-            logger.info(f"Process {process_id} registered successfully")
+
+            if result == 1:
+                logger.info(f"Process {process_id} registered successfully")
+
+            if result == 0:
+                logger.info(f"Process {process_id} already registered")
 
         except redis.RedisError as e:
             logger.error(f"Failed to write to Redis: {e}")
