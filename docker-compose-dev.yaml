@@ -3,6 +3,9 @@ networks:
     name: ${DOCKER_DEV_NETWORK}
     external: true
 
+volumes:
+  redis_data:
+
 services:
   app:
     image: ${CONTAINER_REGISTRY}/analytics/${IMAGE_NAME}:${IMAGE_TAG}
@@ -21,3 +24,5 @@ services:
     command: dragonfly --requirepass "" # --appendonly yes
     networks: 
       - dev
+    volumes:
+      - redis_data:/data

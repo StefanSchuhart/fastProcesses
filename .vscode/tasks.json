@@ -25,7 +25,8 @@
                 "rm",
                 "-s",
                 "redis",
-                "--force"
+                "--force",
+                "--volumes"
             ],
           }
     ]
