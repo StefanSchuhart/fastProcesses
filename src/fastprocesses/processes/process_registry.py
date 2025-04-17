@@ -117,6 +117,7 @@ class ProcessRegistry:
 
         if not process_class:
             logger.error(f"Process class {process_info['class_path']} not found!")
+            return None
 
         return process_class()
 
