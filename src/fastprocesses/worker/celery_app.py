@@ -122,7 +122,9 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
     except Exception as e:
         # Update job with error status
 
-        update_progress(100, "Process completed", status=JobStatusCode.FAILED)
+        update_progress(
+            0, e, status=JobStatusCode.FAILED
+        )
 
         logger.error(f"Error executing process {process_id}: {e}")
         raise
