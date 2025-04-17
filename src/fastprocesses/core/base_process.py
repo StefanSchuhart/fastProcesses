@@ -39,6 +39,7 @@ class BaseProcess(ABC):
     async def execute(
         self,
         exec_body: Dict[str, Any],
+        #TODO: try to describe the exact type and inputs 
         progress_callback: Callable[[int, str], None] | None = None
     ) -> Dict[str, Any]:
         """
