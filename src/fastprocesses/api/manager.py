@@ -62,9 +62,9 @@ class AsyncExecutionStrategy(ExecutionStrategy):
         job_status = JobStatusInfo.model_validate(
             {
                 "jobID": task.id,
-                "status": "accepted",
+                "status": JobStatusCode.ACCEPTED,
                 "type": "process",
-                "process_id": process_id,
+                "processID": process_id,
                 "created": datetime.now(timezone.utc),
                 "updated": datetime.now(timezone.utc),
                 "progress": 0,
@@ -259,12 +259,18 @@ class ProcessManager:
         Raises:
             ValueError: If the job is not found.
         """
-        # Check if job exists in Redis first
-        job_info = self.cache.get(f"job:{job_id}")
+        # Retrieve the job from Redis
+        job_info_raw = self.cache.get(f"job:{job_id}")
+        
+        job_info = JobStatusInfo.model_validate(job_info_raw)
+        
         if not job_info:
             logger.error(f"Job {job_id} not found in cache")
             raise ValueError(f"Job {job_id} not found")
 
+        return job_info
+
+        # TODO: rework get method, because it should not update a job
         # Now check Celery status
         result = AsyncResult(job_id)
         if result.ready():
