@@ -7,6 +7,7 @@ from fastprocesses.core.models import (
     Conformance,
     ExecutionMode,
     JobList,
+    JobStatusInfo,
     Landing,
     Link,
     ProcessDescription,
@@ -169,14 +170,15 @@ def get_router(
         )
 
 
-    @router.get("/jobs/{job_id}")
+    @router.get("/jobs/{job_id}", response_model=JobStatusInfo)
     async def get_job_status(job_id: str):
         logger.debug(f"Get job status endpoint accessed for job ID: {job_id}")
         try:
             return process_manager.get_job_status(job_id)
+
         except ValueError as e:
             logger.error(f"Job {job_id} not found: {e}")
-            raise HTTPException(status_code=404, detail=str(e))
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found.")
 
     @router.get("/jobs/{job_id}/results")
     async def get_job_result(job_id: str):
