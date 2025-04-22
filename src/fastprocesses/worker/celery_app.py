@@ -48,7 +48,11 @@ class CacheResultTask(Task):
 def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
 
     # Create a progress update function that captures the job_id
-    def update_progress(progress: int, message: str = None, status: str | None = None):
+    def update_progress(
+            progress: int,
+            message: str = None,
+            status: str | None = None
+    ):
         job_key = f"job:{job_id}"
         job_info = JobStatusInfo.model_validate(redis_cache.get(job_key))
 
@@ -76,7 +80,10 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
 
     data = json.loads(serialized_data)
 
-    logger.info(f"Executing process {process_id} with data {data}")
+    logger.info(
+        f"Executing process {process_id} "
+        f"with data {serialized_data[:80]}"
+    )
     job_id = self.request.id  # Get the task/job ID
 
     # Initialize progress
