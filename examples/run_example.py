@@ -14,6 +14,7 @@ from fastprocesses.core.models import (
     ProcessOutputTransmission,
     Schema,
 )
+from fastprocesses.core.types import ProgressCallback
 from fastprocesses.processes.process_registry import register_process
 
 class TextModel(BaseModel):
@@ -38,6 +39,73 @@ class TextModelOut(BaseModel):
         }
 @register_process("simple_process")
 class SimpleProcess(BaseProcess):
+    # Define process description as a class variable
+    # process_description = ProcessDescription(
+    #     id="simple_process",
+    #     title="Simple Process",
+    #     version="1.0.0",
+    #     description="A simple example process",
+    #     jobControlOptions=[
+    #         ProcessJobControlOptions.SYNC_EXECUTE,
+    #         ProcessJobControlOptions.ASYNC_EXECUTE,
+    #     ],
+    #     outputTransmission=[ProcessOutputTransmission.VALUE],
+    #     inputs={
+    #         "input_text": ProcessInput(
+    #             title="Input Text",
+    #             description="Text to process",
+    #             scheme=Schema(type="dict", minLength=1, maxLength=1000),
+    #         )
+    #     },
+    #     outputs={
+    #         "output_text": ProcessOutput(
+    #             title="Output Text",
+    #             description="Processed text",
+    #             scheme=Schema(type="string"),
+    #         )
+    #     },
+    #     keywords=["text", "processing"],
+    #     metadata={"created": "2024-02-19", "provider": "Example Organization"},
+    # )
+
+    process_description = ProcessDescription.from_yaml(
+            "examples/run_example.yaml"
+    )
+
+    async def execute(
+        self,
+        exec_body: dict[str, Any],
+        progress_callback: ProgressCallback
+    ) -> Dict[str, Any]:
+
+        # Report start if callback is provided
+        if progress_callback:
+            progress_callback(10, "Processing input")
+
+        text_model = TextModel.model_validate(exec_body["inputs"])
+
+        # Simulate some processing time
+        if progress_callback:
+            progress_callback(30, "Converting text")
+
+        await asyncio.sleep(0.5)  # Simulate work
+        output_text = text_model.input_text.upper()
+        output_model = TextModelOut(output_text=output_text)
+
+        if progress_callback:
+            progress_callback(70, "Finalizing results")
+
+        await asyncio.sleep(0.3)  # More simulated work
+
+        if progress_callback:
+            progress_callback(90, "Preparing output")
+
+        raise Exception("This is a test exception")
+
+        return output_model
+
+@register_process("simple_process_2")
+class SimpleProcess_2(BaseProcess):
     # Define process description as a class variable
     # process_description = ProcessDescription(
     #     id="simple_process",
@@ -100,7 +168,6 @@ class SimpleProcess(BaseProcess):
             progress_callback(90, "Preparing output")
 
         return output_model
-
 
 # Create the FastAPI app
 app = OGCProcessesAPI(

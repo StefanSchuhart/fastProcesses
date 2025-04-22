@@ -19,6 +19,7 @@ from fastprocesses.core.models import (
 )
 from fastprocesses.processes.process_registry import get_process_registry
 
+
 # NOTE: Cache hash key is based on original unprocessed inputs always
 # this ensures consistent caching and cache retrieval
 # which does not depend on arbitrary processed data, which can change
@@ -52,7 +53,16 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
             progress: int,
             message: str = None,
             status: str | None = None
-    ):
+    ) -> None:
+        """
+        Updates the progress of a job.
+
+        Args:
+            progress (int): The progress percentage (0-100).
+            message (str): A message describing the current progress.
+            status (str | None): The current status (e.g., "RUNNING", "SUCCESSFUL").
+        """
+
         job_key = f"job:{job_id}"
         job_info = JobStatusInfo.model_validate(redis_cache.get(job_key))
 

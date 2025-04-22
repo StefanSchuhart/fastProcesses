@@ -1,9 +1,8 @@
 from abc import ABC, abstractmethod
-from typing import Any, Callable, ClassVar, Dict, List
-
-from pydantic import BaseModel
+from typing import Any, ClassVar, Dict, List
 
 from fastprocesses.core.models import ProcessDescription
+from fastprocesses.core.types import ProgressCallback
 
 
 class BaseProcess(ABC):
@@ -39,8 +38,7 @@ class BaseProcess(ABC):
     async def execute(
         self,
         exec_body: Dict[str, Any],
-        #TODO: try to describe the exact type and inputs 
-        progress_callback: Callable[[int, str], None] | None = None
+        progress_callback: ProgressCallback
     ) -> Dict[str, Any]:
         """
         Executes the process with given inputs.
