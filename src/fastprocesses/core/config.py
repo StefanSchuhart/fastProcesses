@@ -9,10 +9,6 @@ class ResultCacheConnectionConfig(BaseSettings):
     RESULT_CACHE_PORT: int = 6379
     RESULT_CACHE_DB: str = 1
     RESULT_CACHE_PASSWORD: SecretStr = ""
-    RESULTS_CACHE_TTL: int = Field(
-        default=365,  # 1 year
-        description="Time to live for cached results in days",
-    )
 
     @computed_field
     @property
@@ -58,6 +54,13 @@ class OGCProcessesSettings(BaseSettings):
         default_factory=ResultCacheConnectionConfig
     )
     CORS_ALLOWED_ORIGINS: list[AnyUrl | str] = ["*"]
+    CELERY_RESULTS_TTL_DAYS: int = 365
+    CELERY_TASK_TLIMIT_HARD: int = 900 # seconds
+    CELERY_TASK_TLIMIT_SOFT: int = 600 # seconds
+    RESULTS_TEMP_TTL_HOURS: int = Field(
+        default=48,  # 2 days
+        description="Time to live for cached results in days",
+    )
 
     @field_validator("CORS_ALLOWED_ORIGINS", mode="before")
     def parse_cors_origins(cls, v) -> list[str]:
