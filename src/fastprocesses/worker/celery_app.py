@@ -128,7 +128,6 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
                 "Process completed after soft time limit",
                 status=JobStatusCode.SUCCESSFUL,
             )
-            return result
 
         except Exception as inner_exception:
             logger.error(
@@ -136,15 +135,17 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
             )
             raise inner_exception
 
+    # intercept errors coming from the process` execution method
     except Exception as e:
         # Update job with error status
 
         update_progress(
-            0, e, status=JobStatusCode.FAILED
+            0,
+            "Execution failed du to an error in "
+            f"{service.__class__}", status=JobStatusCode.FAILED
         )
 
         logger.error(f"Error executing process {process_id}: {e}")
-        raise
 
     result_dump = jsonable_encoder(result)
     logger.info(
