@@ -51,7 +51,7 @@ celery_app.conf.update(
     # set limits for long-running tasks
     task_time_limit=settings.CELERY_TASK_TLIMIT_HARD,  # Hard limit in seconds
     task_soft_time_limit=settings.CELERY_TASK_TLIMIT_SOFT,  # Soft limit in seconds
-    result_expires=settings.CELERY_RESULTS_TTL_DAYS,  # Time in seconds before results expire
+    result_expires=settings.CELERY_RESULTS_TTL_DAYS * 86000,  # Time in seconds before results expire
     worker_send_task_events=True,  # Enable events to track task progress
     # task_acks_late=True,  # Acknowledge the task only after it has been executed)
 )
