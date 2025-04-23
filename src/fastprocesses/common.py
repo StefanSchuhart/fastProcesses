@@ -4,7 +4,7 @@ from celery import Celery
 from fastapi.encoders import jsonable_encoder
 from kombu.serialization import register
 
-from fastprocesses.core.cache import Cache
+from fastprocesses.core.cache import TempResultCache
 from fastprocesses.core.config import settings
 
 
@@ -49,14 +49,14 @@ celery_app.conf.update(
     broker_connection_retry=True,
     broker_connection_retry_on_startup=True,
     # set limits for long-running tasks
-    task_time_limit=900,  # Hard limit in seconds
-    task_soft_time_limit=600,  # Soft limit in seconds
-    result_expires=3600,  # Time in seconds before results expire
+    task_time_limit=settings.CELERY_TASK_TLIMIT_HARD,  # Hard limit in seconds
+    task_soft_time_limit=settings.CELERY_TASK_TLIMIT_SOFT,  # Soft limit in seconds
+    result_expires=settings.CELERY_RESULTS_TTL_DAYS,  # Time in seconds before results expire
     worker_send_task_events=True,  # Enable events to track task progress
     # task_acks_late=True,  # Acknowledge the task only after it has been executed)
 )
 
-redis_cache = Cache(
+redis_cache = TempResultCache(
     key_prefix="process_results",
-    ttl_days=settings.results_cache.RESULTS_CACHE_TTL,
+    ttl_hours=settings.RESULTS_TEMP_TTL_HOURS,
 )
