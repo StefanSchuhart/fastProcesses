@@ -270,19 +270,6 @@ class ProcessManager:
 
         return job_info
 
-        # TODO: rework get method, because it should not update a job
-        # Now check Celery status
-        result = AsyncResult(job_id)
-        if result.ready():
-            if result.successful():
-                return {"status": "successful", "type": "process"}
-            return {
-                "status": "failed",
-                "type": "process",
-                "message": str(result.result),
-            }
-        return {"status": "running", "type": "process"}
-
     def get_job_result(self, job_id: str) -> Dict[str, Any]:
         """
         Retrieves the result of a specific job.
@@ -303,7 +290,7 @@ class ProcessManager:
             raise ValueError(f"Job {job_id} not found")
 
         result = AsyncResult(job_id)
-        if result.state == "PENDING":
+        if result.state == "PENDING" or "STARTED" or "RETRY":
             logger.error(f"Result for job ID {job_id} is not ready")
             raise ValueError("Result not ready")
         elif result.state == "FAILURE":
@@ -312,8 +299,7 @@ class ProcessManager:
         elif result.state == "SUCCESS":
             logger.info(f"Job ID {job_id} completed successfully")
             return result.result
-        else:
-            return {"status": "running", "type": "process"}
+
 
     def delete_job(self, job_id: str) -> Dict[str, Any]:
         logger.info(f"Deleting job ID: {job_id}")
