@@ -22,6 +22,8 @@ fastprocesses is a Python library that provides a simple and efficient way to cr
 - **Pydantic Models**: Strong type validation for process inputs and outputs
 - **Logging**: Uses `loguru` for modern logging with rotation support
 
+`fastprocesses` uses Celery for async execution of arbitrary processes and result retrieval from a backend like Redis. For deterministic processes, that means processes that return the same results for identical inputs, redis is used as temporary cache. For both, the celery backend and the temporary Redis cache, time to live can be configured.
+
 ### Architecture
 
 ```mermaid
@@ -230,6 +232,11 @@ RESULT_CACHE_DB=1
 CELERY_BROKER_HOST="redis"
 CELERY_BROKER_PORT=6379
 CELERY_BROKER_DB=0
+
+CELERY_RESULTS_TTL_DAYS=365 # job results are stored for this time period
+CELERY_TASK_TLIMIT_HARD=900 # seconds
+CELERY_TASK_TLIMIT_SOFT=600 # seconds
+RESULTS_TEMP_TTL_HOURS=48 # this period determines how long results can be retrieved from cache, when the inputs are exactly the same 
 ```
 
 ### Notes:
