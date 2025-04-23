@@ -10,26 +10,26 @@ from fastprocesses.core.config import settings
 from fastprocesses.core.logging import logger
 
 
-class Cache:
-    def __init__(self, key_prefix: str, ttl_days: int):
+class TempResultCache:
+    def __init__(self, key_prefix: str, ttl_hours: int):
         self._retry = Retry(ExponentialBackoff(cap=10, base=1), -1)
         self._redis = redis.Redis.from_url(
             str(settings.results_cache.connection),
             retry=self._retry,
             retry_on_error=[ConnectionError, TimeoutError, ConnectionResetError],
-            health_check_interval=1
+            health_check_interval=1,
         )
         self._key_prefix = key_prefix
-        self._ttl_days = ttl_days
+        self._ttl_hours = ttl_hours
 
     def get(self, key: str) -> dict:
         logger.debug(f"Getting cache for key: {key}")
         key = self._make_key(key)
         serialized_value = self._redis.get(key)
-        
+
         if serialized_value is not None:
             logger.debug(f"Received data from cache: {serialized_value[:80]}")
-        
+
             return json.loads(serialized_value)
 
         return None
@@ -39,7 +39,7 @@ class Cache:
         key = self._make_key(key)
         jsonable_value = jsonable_encoder(value)
         serialized_value = json.dumps(jsonable_value)
-        ttl = self._ttl_days * 86400
+        ttl = self._ttl_hours * 60 * 60  # Convert hours to seconds
         self._redis.setex(key, ttl, serialized_value)
 
     def delete(self, key: str) -> None:
