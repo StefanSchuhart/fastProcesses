@@ -290,7 +290,7 @@ class ProcessManager:
             raise ValueError(f"Job {job_id} not found")
 
         result = AsyncResult(job_id)
-        if result.state == "PENDING" or "STARTED" or "RETRY":
+        if result.state == ("PENDING" or "STARTED" or "RETRY"):
             logger.error(f"Result for job ID {job_id} is not ready")
             raise ValueError("Result not ready")
         elif result.state == "FAILURE":
