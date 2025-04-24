@@ -39,6 +39,7 @@ class CacheResultTask(Task):
             # Use the task ID as the key
             temp_result_cache.put(key=key, value=retval)
 
+            # TODO: shorten retval log!
             logger.info(f"Saved result with key {key} to cache: {retval}")
         except Exception as e:
             logger.error(f"Error caching results: {e}")
@@ -101,6 +102,7 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
         """
 
         job_key = f"job:{job_id}"
+        # TODO: job disappears(!) when progress is not between 0 and 100
         job_info = JobStatusInfo.model_validate(job_status_cache.get(job_key))
 
         job_info.progress = progress
