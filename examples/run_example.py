@@ -1,21 +1,17 @@
 import asyncio
 from typing import Any, Callable, Dict
 
-from pydantic import BaseModel
 import uvicorn
+from pydantic import BaseModel
 
 from fastprocesses.api.server import OGCProcessesAPI
 from fastprocesses.core.base_process import BaseProcess
 from fastprocesses.core.models import (
     ProcessDescription,
-    ProcessInput,
-    ProcessJobControlOptions,
-    ProcessOutput,
-    ProcessOutputTransmission,
-    Schema,
 )
-from fastprocesses.core.types import ProgressCallback
+from fastprocesses.core.types import JobProgressCallback
 from fastprocesses.processes.process_registry import register_process
+
 
 class TextModel(BaseModel):
     input_text: str | dict
@@ -75,32 +71,32 @@ class SimpleProcess(BaseProcess):
     async def execute(
         self,
         exec_body: dict[str, Any],
-        progress_callback: ProgressCallback
+        job_progress_callback: JobProgressCallback
     ) -> Dict[str, Any]:
 
         # Report start if callback is provided
-        if progress_callback:
-            progress_callback(10, "Processing input")
+        if job_progress_callback:
+            job_progress_callback(10, "Processing input")
 
         text_model = TextModel.model_validate(exec_body["inputs"])
 
         # Simulate some processing time
-        if progress_callback:
-            progress_callback(30, "Converting text")
+        if job_progress_callback:
+            job_progress_callback(30, "Converting text")
 
         await asyncio.sleep(0.5)  # Simulate work
         output_text = text_model.input_text.upper()
         output_model = TextModelOut(output_text=output_text)
 
-        if progress_callback:
-            progress_callback(70, "Finalizing results")
+        if job_progress_callback:
+            job_progress_callback(70, "Finalizing results")
 
         await asyncio.sleep(0.3)  # More simulated work
 
-        if progress_callback:
-            progress_callback(90, "Preparing output")
+        if job_progress_callback:
+            job_progress_callback(90, "Preparing output")
 
-        raise Exception("This is a test exception")
+        # raise Exception("This is a test exception")
 
         return output_model
 
@@ -142,30 +138,30 @@ class SimpleProcess_2(BaseProcess):
     async def execute(
         self,
         exec_body: dict[str, Any],
-        progress_callback: Callable[[int, str], None] | None = None
+        job_progress_callback: Callable[[int, str], None] | None = None
     ) -> Dict[str, Any]:
 
         # Report start if callback is provided
-        if progress_callback:
-            progress_callback(10, "Processing input")
+        if job_progress_callback:
+            job_progress_callback(10, "Processing input")
 
         text_model = TextModel.model_validate(exec_body["inputs"])
 
         # Simulate some processing time
-        if progress_callback:
-            progress_callback(30, "Converting text")
+        if job_progress_callback:
+            job_progress_callback(30, "Converting text")
 
         await asyncio.sleep(0.5)  # Simulate work
         output_text = text_model.input_text.upper()
         output_model = TextModelOut(output_text=output_text)
 
-        if progress_callback:
-            progress_callback(70, "Finalizing results")
+        if job_progress_callback:
+            job_progress_callback(70, "Finalizing results")
 
         await asyncio.sleep(0.3)  # More simulated work
 
-        if progress_callback:
-            progress_callback(90, "Preparing output")
+        if job_progress_callback:
+            job_progress_callback(90, "Preparing output")
 
         return output_model
 
