@@ -214,7 +214,11 @@ class SimpleProcess(BaseProcess):
         }
     )
 
-    async def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute(
+        self,
+        exec_body: Dict[str, Any],
+        job_progress_callback: JobProgressCallback
+    ) -> Dict[str, Any]:
         input_text = inputs["inputs"]["input_text"]
         output_text = input_text.upper()
         return {"output_text": output_text}
