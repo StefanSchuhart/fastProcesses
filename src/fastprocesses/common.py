@@ -56,7 +56,12 @@ celery_app.conf.update(
     # task_acks_late=True,  # Acknowledge the task only after it has been executed)
 )
 
-redis_cache = TempResultCache(
+temp_result_cache = TempResultCache(
     key_prefix="process_results",
     ttl_hours=settings.RESULTS_TEMP_TTL_HOURS,
+)
+
+job_status_cache = TempResultCache(
+    key_prefix="job_status",
+    ttl_hours=settings.JOB_STATUS_TTL_DAYS,
 )
