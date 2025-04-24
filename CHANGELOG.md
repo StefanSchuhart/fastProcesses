@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 ## Development version 0.11.0
 - further improve storing jobs and job results in cache using a dedicated object model (eventually using redis_om)
 - further improve error handling (distinguish between user input error, process execution errors and library errors) to give process users and library users meaningful error messages in the correct place (job message/result, logs)
+- improve/implement retry mechanisms when calling celery tasks
 
 ## version 0.10.0
 
@@ -17,7 +18,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - improved handling, limiting it to update the message and updated fields only...
 - and renamed it to **job_progress_callback**
 - replaced celerys AsyncResult for job status retrieval by getting the job info stored in redis
-
 
 ### fixes:
 fix: store the error message when a job fails in job details
