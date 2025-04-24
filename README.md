@@ -87,6 +87,75 @@ graph TB
     class CW,CT worker
 ```
 
+### Routes
+
+```mermaid
+graph TB
+    %% Routes
+    subgraph Routes
+        RP["GET /processes"]:::route
+        RPD["GET /processes/{process_id}"]:::route
+        RE["POST /processes/{process_id}/execution"]:::route
+        RJ["GET /jobs"]:::route
+        RJS["GET /jobs/{job_id}"]:::route
+        RJR["GET /jobs/{job_id}/results"]:::route
+    end
+
+    %% FastAPI Application
+    subgraph FastAPI Application
+        PM_get["ProcessManager.get_available_processes"]:::component
+        PM_get_desc["ProcessManager.get_process_description"]:::component
+        PM_exec["ProcessManager.execute_process"]:::component
+        PM_list_jobs["ProcessManager.list_jobs"]:::component
+        PM_job_status["ProcessManager.get_job_status"]:::component
+        PM_job_results["ProcessManager.get_job_results"]:::component
+        PR["ProcessRegistry"]:::component
+        CT["CacheResultTask"]:::component
+        CW["Celery Worker"]:::component
+
+        %% Integrated Redis Stores
+        RC["Redis Cache (Temporary Results)"]:::redis
+        RR["Redis Registry (Process Metadata)"]:::redis
+        CB["Redis Broker (Celery Tasks)"]:::redis
+        CR["Redis Backend (Celery Results)"]:::redis
+    end
+
+    %% Routes to ProcessManager
+    RP -->|List Processes| PM_get
+    RPD -->|Get Process Description| PM_get_desc
+    RE -->|Execute Process| PM_exec
+    RJ -->|List Jobs| PM_list_jobs
+    RJS -->|Get Job Status| PM_job_status
+    RJR -->|Get Job Results| PM_job_results
+
+    %% ProcessManager to Redis
+    PM_get -->|Read Process Metadata| RR
+    PM_get_desc -->|Read Process Metadata| RR
+    PM_exec -->|Read/Write Temporary Results| RC
+    PM_exec -->|Submit Task| CB
+    PM_list_jobs -->|Read Job Metadata| CR
+    PM_job_status -->|Read Job Metadata| CR
+    PM_job_results -->|Read Job Results| CR
+
+    %% ProcessManager to ProcessRegistry
+    PM_get -->|Get Processes| PR
+    PM_get_desc -->|Get Process| PR
+
+    %% ProcessRegistry to Redis
+    PR -->|Store/Retrieve Process Metadata| RR
+
+    %% Celery Worker Flow
+    CB -->|Distribute Tasks| CW
+    CW -->|Execute Process| CT
+    CT -->|Write Temporary Results| RC
+    CW -->|Write Task Results| CR
+
+    %% Styling
+    classDef route fill:#f9f,stroke:#333,stroke-width:2px,color:#000
+    classDef component fill:#bbf,stroke:#333,stroke-width:2px,color:#000
+    classDef redis fill:#bfb,stroke:#333,stroke-width:2px,color:#000
+```
+
 ### Usage
 
 1. **Define a Process**: Create a new process by subclassing `BaseProcess` and using the `@register_process` decorator.
