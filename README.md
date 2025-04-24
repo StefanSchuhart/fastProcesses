@@ -2,7 +2,7 @@
 
 A library to create a FastAPI-based OGC API Processes wrapper around existing projects. This library simplifies the process of defining and registering processes, making it easy to build and deploy OGC API Processes.
 
-AI was used to create this code.
+AI helped to create this code.
 
 ## Version: 0.10.0
 
@@ -312,6 +312,7 @@ RESULTS_TEMP_TTL_HOURS=48 # this period determines how long results can be retri
 !IMPORTANT!: Cache hash key is based on original unprocessed inputs always. This ensures consistent caching and cache retrieval which does not depend on arbitrary processed data, which can change when the process is updated or changed!
 
 ### Version Notes
+- **0.10.0**: improved cache handling and added cache settings
 - **0.9.0**: read process description from file, added set execution mode via Prefer-header
 - **0.8.0**: added retry mechanism to Cache class and allow for separate connections each for Celery and results/jobs Cache
 - **0.7.0**: added progress callback for job updates and SoftTimeLimit for tasks
