@@ -5,7 +5,9 @@ from typing import Any, Dict, List, Tuple
 
 from celery.result import AsyncResult
 
-from fastprocesses.common import celery_app, redis_cache
+from fastprocesses.common import (
+    celery_app, temp_result_cache, job_status_cache
+)
 from fastprocesses.core.logging import logger
 from fastprocesses.core.models import (
     CalculationTask,
@@ -66,7 +68,6 @@ class AsyncExecutionStrategy(ExecutionStrategy):
                 "type": "process",
                 "processID": process_id,
                 "created": datetime.now(timezone.utc),
-                "updated": datetime.now(timezone.utc),
                 "progress": 0,
                 "links": [
                     Link.model_validate(
@@ -79,7 +80,7 @@ class AsyncExecutionStrategy(ExecutionStrategy):
                 ],
             }
         )
-        self.process_manager.cache.put(f"job:{task.id}", job_status)
+        self.process_manager.job_status_cache.put(f"job:{task.id}", job_status)
 
         return ProcessExecResponse(status="accepted", jobID=task.id, type="process")
 
@@ -118,7 +119,7 @@ class SyncExecutionStrategy(ExecutionStrategy):
                 ],
             }
         )
-        self.process_manager.cache.put(f"job:{task.id}", job_status)
+        self.process_manager.job_status_cache.put(f"job:{task.id}", job_status)
 
         return ProcessExecResponse(
             status="successful", jobID=task.id, type="process", value=result
@@ -132,7 +133,8 @@ class ProcessManager:
         """Initializes the ProcessManager with Celery app and process registry."""
         self.celery_app = celery_app
         self.process_registry = get_process_registry()
-        self.cache = redis_cache
+        self.cache = temp_result_cache
+        self.job_status_cache = job_status_cache
 
     def get_available_processes(
         self, limit: int, offset: int
@@ -229,7 +231,7 @@ class ProcessManager:
         )
 
         # Check cache first
-        cached_result = self._check_cache(calculation_task)
+        cached_result = self._check_cache(calculation_task, process_id)
         if cached_result:
             logger.info(f"Result found in cache for process {process_id}")
             return cached_result
@@ -260,10 +262,10 @@ class ProcessManager:
             ValueError: If the job is not found.
         """
         # Retrieve the job from Redis
-        job_info_raw = self.cache.get(f"job:{job_id}")
-        
+        job_info_raw = self.job_status_cache.get(f"job:{job_id}")
+
         job_info = JobStatusInfo.model_validate(job_info_raw)
-        
+
         if not job_info:
             logger.error(f"Job {job_id} not found in cache")
             raise ValueError(f"Job {job_id} not found")
@@ -284,7 +286,7 @@ class ProcessManager:
             ValueError: If the job is not found.
         """
         # Check if job exists in Redis first
-        job_info = self.cache.get(f"job:{job_id}")
+        job_info = self.job_status_cache.get(f"job:{job_id}")
         if not job_info:
             logger.error(f"Job {job_id} not found in cache")
             raise ValueError(f"Job {job_id} not found")
@@ -299,7 +301,6 @@ class ProcessManager:
         elif result.state == "SUCCESS":
             logger.info(f"Job ID {job_id} completed successfully")
             return result.result
-
 
     def delete_job(self, job_id: str) -> Dict[str, Any]:
         logger.info(f"Deleting job ID: {job_id}")
@@ -330,12 +331,12 @@ class ProcessManager:
             List[Dict[str, Any]]: List of job status information
         """
         # Get all job IDs from Redis
-        job_keys = self.cache.keys("job:*")
+        job_keys = self.job_status_cache.keys("job:*")
         jobs = []
 
         for job_key in job_keys[offset : offset + limit]:
             try:
-                job_info = JobStatusInfo.model_validate(self.cache.get(job_key))
+                job_info = JobStatusInfo.model_validate(self.job_status_cache.get(job_key))
                 if job_info:
                     jobs.append(job_info)
 
@@ -349,7 +350,8 @@ class ProcessManager:
         return jobs, next_link
 
     def _check_cache(
-        self, calculation_task: CalculationTask
+        self, calculation_task: CalculationTask,
+        process_id: str
     ) -> ProcessExecResponse | None:
         """
         Optimizes performance by checking if identical calculation exists in cache.
@@ -374,6 +376,7 @@ class ProcessManager:
             job_info = JobStatusInfo.model_validate(
                 {
                     "jobID": task.id,
+                    "processID": process_id,
                     "status": JobStatusCode.SUCCESSFUL,
                     "type": "process",
                     "created": datetime.now(timezone.utc),
@@ -400,7 +403,7 @@ class ProcessManager:
                     ],
                 }
             )
-            self.cache.put(f"job:{task.id}", job_info)
+            self.job_status_cache.put(f"job:{task.id}", job_info)
 
             return ProcessExecResponse(
                 status="successful", jobID=task.id, type="process"
