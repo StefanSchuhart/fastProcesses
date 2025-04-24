@@ -61,6 +61,10 @@ class OGCProcessesSettings(BaseSettings):
         default=48,  # 2 days
         description="Time to live for cached results in days",
     )
+    JOB_STATUS_TTL_DAYS: int = Field(
+        default=365,  # 7 days
+        description="Time to live for job status in days",
+    )
 
     @field_validator("CORS_ALLOWED_ORIGINS", mode="before")
     def parse_cors_origins(cls, v) -> list[str]:
