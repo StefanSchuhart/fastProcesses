@@ -53,7 +53,7 @@ class ProcessRegistry:
                 self.registry_key, process_id, json.dumps(process_data)
             )
 
-            logger.debug(f"Redis hset result: {result}")
+            logger.debug(f"Redis hset result for registered process: {result}")
 
             if result == 1:
                 logger.info(f"Process {process_id} registered successfully")
