@@ -9,7 +9,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 
-from fastprocesses.common import celery_app, temp_result_cache
+from fastprocesses.common import celery_app, temp_result_cache, job_status_cache
 from fastprocesses.core.logging import logger
 from fastprocesses.core.models import (
     CalculationTask,
@@ -51,7 +51,6 @@ def update_job_status(
     message: str = None,
     status: str | None = None,
     started: datetime | None = None,
-    finished: datetime | None = None,
 ) -> None:
     """
     Updates the progress of a job.
@@ -63,7 +62,7 @@ def update_job_status(
     """
 
     job_key = f"job:{job_id}"
-    job_info = JobStatusInfo.model_validate(temp_result_cache.get(job_key))
+    job_info = JobStatusInfo.model_validate(job_status_cache.get(job_key))
 
     job_info.status = status or job_info.status
     job_info.progress = progress
@@ -85,7 +84,7 @@ def update_job_status(
     if message:
         job_info.message = message
 
-    temp_result_cache.put(job_key, job_info)
+    job_status_cache.put(job_key, job_info)
     logger.debug(f"Updated progress for job {job_id}: {progress}%, {message}")
 
 
@@ -102,7 +101,7 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
         """
 
         job_key = f"job:{job_id}"
-        job_info = JobStatusInfo.model_validate(temp_result_cache.get(job_key))
+        job_info = JobStatusInfo.model_validate(job_status_cache.get(job_key))
 
         job_info.progress = progress
         job_info.updated = datetime.now(timezone.utc)
@@ -110,7 +109,7 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
         if message:
             job_info.message = message
 
-        temp_result_cache.put(job_key, job_info)
+        job_status_cache.put(job_key, job_info)
         logger.debug(f"Updated progress for job {job_id}: {progress}%, {message}")
 
     data = json.loads(serialized_data)
@@ -119,7 +118,10 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
     job_id = self.request.id  # Get the task/job ID
 
     # Initialize progress
-    update_job_status(job_id, 0, "Starting process")
+    update_job_status(
+        job_id, 0, "Starting process", JobStatusCode.RUNNING,
+        started=datetime.now(timezone.utc),
+    )
 
     try:
         service = get_process_registry().get_process(process_id)
@@ -145,6 +147,7 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
 
             logger.info(f"Process {process_id} completed after soft time limit")
             update_job_status(
+                job_id,
                 100,
                 "Process completed after soft time limit",
                 status=JobStatusCode.SUCCESSFUL,
@@ -161,6 +164,7 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
         # Update job with error status
 
         update_job_status(
+            job_id,
             0,
             f"Execution failed du to an error in {service.__class__}",
             status=JobStatusCode.FAILED,
@@ -176,7 +180,11 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
     )
 
     # Mark job as complete
-    update_job_status(100, "Process completed", status=JobStatusCode.SUCCESSFUL)
+    update_job_status(
+        job_id,
+        100,
+        "Process completed", status=JobStatusCode.SUCCESSFUL
+    )
 
     return result
 
