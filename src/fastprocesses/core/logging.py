@@ -21,6 +21,15 @@ for logger_name in loggers:
     logging_logger.handlers = []
     logging_logger.propagate = True
 
+class ErrorLogFilter:
+    def __init__(self):
+        self.error_logged = False
+
+    def __call__(self, record):
+        if record["level"].name == "ERROR":
+            self.error_logged = True
+        return self.error_logged
+
 class InterceptHandler(logging.Handler):
     def emit(self, record):
         # Get corresponding Loguru level
@@ -49,13 +58,18 @@ logger.add(
     format="{time:YYYY-MM-DD at HH:mm:ss} | {level} | {message}"
 )
 
+
+# Instantiate the filter, to create files only when errors are logged
+error_log_filter = ErrorLogFilter()
+
 # Error logs to file with weekly rotation
 logger.add(
     "logs/errors_{time}.log", 
     level="ERROR", 
     rotation="1 week", 
     retention="1 month", 
-    format="{time:YYYY-MM-DD at HH:mm:ss} | {level} | {message}"
+    format="{time:YYYY-MM-DD at HH:mm:ss} | {level} | {message}",
+    filter=error_log_filter
 )
 
 # Info logs to stdout
@@ -67,6 +81,7 @@ logger.add(
     backtrace=True,
     diagnose=True,
 )
+
 
 # Intercept standard logging
 logging.basicConfig(handlers=[InterceptHandler()], level=logging.INFO)
