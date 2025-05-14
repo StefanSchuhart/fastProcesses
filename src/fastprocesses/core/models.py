@@ -4,16 +4,17 @@ from datetime import datetime
 from enum import Enum, StrEnum
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
-from fastapi.encoders import jsonable_encoder
-from pydantic import (
-    AfterValidator,
-    BaseModel,
-    ConfigDict,
-    Field,
-    computed_field,
-)
 import yaml
+from fastapi.encoders import jsonable_encoder
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, computed_field
 
+
+class OGCExceptionResponse(BaseModel):
+    type: str
+    title: str
+    status: int
+    detail: str
+    instance: str | None = None
 
 class Link(BaseModel):
     href: str
@@ -141,6 +142,7 @@ class ProcessDescription(ProcessSummary):
         # Validate and parse the YAML data into the ProcessDescription model
         return cls.model_validate(yaml_data)
 
+
 class ProcessList(BaseModel):
     processes: List[ProcessSummary]
     links: Optional[List[Link]] = None
@@ -226,8 +228,8 @@ class JobStatusCode(StrEnum):
     Job status codes for the OGC API Processes.
     """
 
-    ACCEPTED = "accepted",
-    RUNNING = "running",
-    SUCCESSFUL = "successful",
-    FAILED = "failed",
+    ACCEPTED = "accepted"
+    RUNNING = "running"
+    SUCCESSFUL = "successful"
+    FAILED = "failed"
     DISMISSED = "dismissed"
