@@ -2,14 +2,16 @@
 import asyncio
 import json
 from datetime import datetime, timezone
+import traceback
 from typing import Any, Dict
 
 from celery import Task
 from celery.exceptions import SoftTimeLimitExceeded
+from celery.signals import task_failure
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 
-from fastprocesses.common import celery_app, temp_result_cache, job_status_cache
+from fastprocesses.common import celery_app, job_status_cache, temp_result_cache
 from fastprocesses.core.logging import logger
 from fastprocesses.core.models import (
     CalculationTask,
@@ -114,19 +116,31 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
         job_status_cache.put(job_key, job_info)
         logger.debug(f"Updated progress for job {job_id}: {progress}%, {message}")
 
+    result = None
+
     data = json.loads(serialized_data)
 
     logger.info(f"Executing process {process_id} with data {serialized_data[:80]}")
     job_id = self.request.id  # Get the task/job ID
+    job_status = JobStatusCode.RUNNING
 
-    # Initialize progress
+    # First, mark job as running
     update_job_status(
-        job_id, 0, "Starting process", JobStatusCode.RUNNING,
+        job_id,
+        0,
+        "Starting process",
+        job_status,
         started=datetime.now(timezone.utc),
     )
 
     try:
         service = get_process_registry().get_process(process_id)
+    except ValueError as e:
+        # Update job with error status
+        job_status = JobStatusCode.FAILED
+        raise e
+
+    try:
 
         if asyncio.iscoroutinefunction(service.execute):
             result = asyncio.run(
@@ -147,46 +161,49 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
             else:
                 result = service.execute(data)
 
-            logger.info(f"Process {process_id} completed after soft time limit")
-            update_job_status(
-                job_id,
-                100,
-                "Process completed after soft time limit",
-                status=JobStatusCode.SUCCESSFUL,
-            )
-
         except Exception as inner_exception:
             logger.error(
                 f"Error while completing task after soft time limit: {inner_exception}"
             )
-            raise inner_exception
 
-    # intercept errors coming from the process` execution method
+            raise e
+
+        logger.info(f"Process {process_id} completed after soft time limit")
+        job_status=JobStatusCode.SUCCESSFUL,
+
+    # intercept all errors coming from the process` execution method
     except Exception as e:
         # Update job with error status
+        job_status = JobStatusCode.FAILED
 
-        update_job_status(
-            job_id,
-            0,
-            f"Execution failed du to an error in {service.__class__}",
-            status=JobStatusCode.FAILED,
+        user_frame = traceback.TracebackException.from_exception(e).stack
+
+        logger.error(
+            f"Error in {service.__class__.__name__}.{user_frame[-1].name};"
+            f" line: {user_frame[-1].line} (lineno: {user_frame[-1].lineno});"
+            f" file: {user_frame[-1].filename}"
         )
 
-        logger.error(f"Error executing process {process_id}: {e}")
-        raise e
+        raise Exception(
+            f"Error in {service.__class__.__name__}.{user_frame[-1].name} "
+            f"line: {user_frame[-1].line} (lineno: {user_frame[-1].lineno})"
+        )
 
-    result_dump = jsonable_encoder(result)
-    logger.info(
-        f"Process {process_id} executed "
-        f"successfully with result {json.dumps(result_dump)[:80]}"
-    )
+    finally:
+        if result:
+            result_dump = jsonable_encoder(result)
+            logger.info(
+                f"Process {process_id} executed "
+                f"successfully with result {json.dumps(result_dump)[:80]}"
+            )
+            job_status = JobStatusCode.SUCCESSFUL
 
-    # Mark job as complete
-    update_job_status(
-        job_id,
-        100,
-        "Process completed", status=JobStatusCode.SUCCESSFUL
-    )
+        # Mark job as complete
+        update_job_status(
+            job_id, 100,
+            "Process completed",
+            job_status
+        )
 
     return result
 
@@ -216,3 +233,18 @@ def find_result_in_cache(celery_key: str) -> dict | None:
     if result:
         logger.info(f"Retrieved result from cache for key {celery_key}")
     return result
+
+
+# @task_failure.connect(sender=execute_process)
+# def handle_execute_failure(
+#     sender=None,
+#     task_id=None,
+#     exception=None,
+#     traceback=None,
+#     **kwargs
+# ):
+#     logger.error(
+#         f"Task {task_id} failed. "
+#         f"{repr(exception)}"
+#         f"\nTraceback:\n{traceback}"
+#     )
