@@ -5,8 +5,14 @@ from typing import Any, Dict, List, Tuple
 
 from celery.result import AsyncResult
 
-from fastprocesses.common import (
-    celery_app, temp_result_cache, job_status_cache
+from fastprocesses.common import celery_app, job_status_cache, temp_result_cache
+from fastprocesses.core.exceptions import (
+    InputValidationError,
+    JobFailedError,
+    JobNotFoundError,
+    JobNotReadyError,
+    OutputValidationError,
+    ProcessNotFoundError,
 )
 from fastprocesses.core.logging import logger
 from fastprocesses.core.models import (
@@ -174,7 +180,7 @@ class ProcessManager:
         """
         if not self.process_registry.has_process(process_id):
             logger.error(f"Process {process_id} not found!")
-            raise ValueError(f"Process {process_id} not found!")
+            raise ProcessNotFoundError(process_id)
 
         service = self.process_registry.get_process(process_id)
         return service.get_description()
@@ -207,7 +213,7 @@ class ProcessManager:
         # Validate process exists
         if not self.process_registry.has_process(process_id):
             logger.error(f"Process {process_id} not found!")
-            raise ValueError(f"Process {process_id} not found!")
+            raise ProcessNotFoundError(process_id)
 
         logger.debug(f"Process {process_id} found in registry")
 
@@ -217,13 +223,13 @@ class ProcessManager:
             service.validate_inputs(data.inputs)
         except ValueError as e:
             logger.error(f"Input validation failed for process {process_id}: {str(e)}")
-            raise ValueError(f"Input validation failed: {str(e)}")
+            raise InputValidationError(f"Input validation failed: {str(e)}")
 
         try:
             service.validate_outputs(data.outputs)
         except ValueError as e:
             logger.error(f"Output validation failed for process {process_id}: {str(e)}")
-            raise ValueError(f"Output validation failed: {str(e)}")
+            raise OutputValidationError(f"Output validation failed: {str(e)}")
 
         # Create calculation task
         calculation_task = CalculationTask(
@@ -248,7 +254,7 @@ class ProcessManager:
 
         return strategy.execute(process_id, calculation_task)
 
-    def get_job_status(self, job_id: str) -> Dict[str, Any]:
+    def get_job_status(self, job_id: str) -> JobStatusInfo:
         """
         Retrieves the status of a specific job.
 
@@ -264,11 +270,12 @@ class ProcessManager:
         # Retrieve the job from Redis
         job_info_raw = self.job_status_cache.get(f"job:{job_id}")
 
-        job_info = JobStatusInfo.model_validate(job_info_raw)
 
-        if not job_info:
+        if not job_info_raw:
             logger.error(f"Job {job_id} not found in cache")
-            raise ValueError(f"Job {job_id} not found")
+            raise JobNotFoundError(f"Job {job_id} not found")
+        
+        job_info = JobStatusInfo.model_validate(job_info_raw)
 
         return job_info
 
@@ -289,16 +296,19 @@ class ProcessManager:
         job_info = self.job_status_cache.get(f"job:{job_id}")
         if not job_info:
             logger.error(f"Job {job_id} not found in cache")
-            raise ValueError(f"Job {job_id} not found")
+            raise JobNotFoundError(f"Job {job_id} not found")
 
         result = AsyncResult(job_id)
+
         if result.state == ("PENDING" or "STARTED" or "RETRY"):
             logger.error(f"Result for job ID {job_id} is not ready")
-            raise ValueError("Result not ready")
-        elif result.state == "FAILURE":
-            logger.error(f"Job ID {job_id} failed with error: {result.result}")
-            raise ValueError(f"Job failed: {result.result}")
-        elif result.state == "SUCCESS":
+            raise JobNotReadyError(job_id)
+        
+        if result.state == "FAILURE":
+            logger.error(f"J{result.result}")
+            raise JobFailedError(job_id, repr(result.result))
+        
+        if result.state == "SUCCESS":
             logger.info(f"Job ID {job_id} completed successfully")
             return result.result
 
@@ -336,7 +346,9 @@ class ProcessManager:
 
         for job_key in job_keys[offset : offset + limit]:
             try:
-                job_info = JobStatusInfo.model_validate(self.job_status_cache.get(job_key))
+                job_info = JobStatusInfo.model_validate(
+                    self.job_status_cache.get(job_key)
+                )
                 if job_info:
                     jobs.append(job_info)
 
@@ -350,8 +362,7 @@ class ProcessManager:
         return jobs, next_link
 
     def _check_cache(
-        self, calculation_task: CalculationTask,
-        process_id: str
+        self, calculation_task: CalculationTask, process_id: str
     ) -> ProcessExecResponse | None:
         """
         Optimizes performance by checking if identical calculation exists in cache.
