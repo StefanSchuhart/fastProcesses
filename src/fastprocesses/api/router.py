@@ -1,7 +1,15 @@
-from fastapi import APIRouter, HTTPException, Header, Query, Response, status
+from fastapi import APIRouter, Header, HTTPException, Query, Response, status
 from fastapi.responses import JSONResponse
 
 from fastprocesses.api.manager import ProcessManager
+from fastprocesses.core.exceptions import (
+    InputValidationError,
+    JobFailedError,
+    JobNotFoundError,
+    JobNotReadyError,
+    OutputValidationError,
+    ProcessNotFoundError,
+)
 from fastprocesses.core.logging import logger
 from fastprocesses.core.models import (
     Conformance,
@@ -10,10 +18,11 @@ from fastprocesses.core.models import (
     JobStatusInfo,
     Landing,
     Link,
+    OGCExceptionResponse,
     ProcessDescription,
     ProcessExecRequestBody,
     ProcessExecResponse,
-    ProcessList
+    ProcessList,
 )
 
 
@@ -75,13 +84,23 @@ def get_router(
             response_model_exclude_none=True,
             response_model=ProcessDescription
     )
-    async def describe_process(process_id: str):
+    async def describe_process(
+        process_id: str
+    ) -> ProcessDescription | OGCExceptionResponse:
         logger.debug(f"Describe process endpoint accessed for process ID: {process_id}")
         try:
             return process_manager.get_process_description(process_id)
-        except ValueError as e:
+        except ProcessNotFoundError as e:
             logger.error(f"Process {process_id} not found: {e}")
-            raise HTTPException(status_code=404, detail=str(e))
+            exception = OGCExceptionResponse(
+                type="http://www.opengis.net/def/exceptions/ogcapi-processes-1/1.0/no-such-process",
+                title="Process Not Found",
+                status=404,
+                detail=f"Process '{process_id}' not found.",
+                instance=f"/processes/{process_id}"
+            )
+            raise HTTPException(status_code=404, detail=exception)
+
 
     @router.post(
         "/processes/{process_id}/execution",
@@ -122,28 +141,46 @@ def get_router(
                     # TODO: need to add link headers with location to output
             
             return result
-        except ValueError as e:
-            error_message = str(e)
-            if "Input validation failed" in error_message:
-                logger.error(f"Input validation error for process {process_id}: {error_message}")
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail={
-                        "type": "process",
-                        "error": "InvalidParameterValue",
-                        "message": error_message,
-                        "process_id": process_id
-                    }
-                )
+        except ProcessNotFoundError as e:
+            logger.error(f"Process {process_id} not found: {e}")
+            exception = OGCExceptionResponse(
+                type="http://www.opengis.net/def/exceptions/ogcapi-processes-1/1.0/no-such-process",
+                title="Process Not Found",
+                status=404,
+                detail=f"Process {process_id} not found.",
+                instance=f"/processes/{process_id}"
+            )
+            raise HTTPException(status_code=404, detail=exception)
 
-            logger.error(f"Process {process_id} not found: {error_message}")
+        except InputValidationError as e:
+            error_message = str(e)
+            logger.error(f"Input validation error for process {process_id}: {error_message}")
+            
+            exception = OGCExceptionResponse(
+                type="http://www.opengis.net/def/exceptions/ogcapi-processes-1/1.0/no-such-process",
+                title="Validation error",
+                status=400,
+                detail=f"Process {process_id}: Input validation failed. {error_message}",
+                instance=f"/processes/{process_id}"
+            )
+            raise HTTPException(status_code=400, detail=exception)
+
+        except OutputValidationError as e:
+            error_message = str(e)
+
+            exception = OGCExceptionResponse(
+                type="http://www.opengis.net/def/exceptions/ogcapi-processes-1/1.0/no-such-process",
+                title="Validation error",
+                status=400,
+                detail=f"Process {process_id}: Output validation failed. {error_message}",
+                instance=f"/processes/{process_id}"
+            )
+
+            logger.error(f"Output validation error for process {process_id}: {error_message}")
+            
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={
-                    "type": "process",
-                    "error": "NotFound",
-                    "message": error_message
-                }
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=exception
             )
 
     @router.get(
@@ -170,23 +207,80 @@ def get_router(
         )
 
 
-    @router.get("/jobs/{job_id}", response_model=JobStatusInfo)
-    async def get_job_status(job_id: str):
+    @router.get("/jobs/{job_id}")
+    async def get_job_status(job_id: str) -> JobStatusInfo | OGCExceptionResponse:
         logger.debug(f"Get job status endpoint accessed for job ID: {job_id}")
         try:
             return process_manager.get_job_status(job_id)
 
-        except ValueError as e:
+        except JobNotFoundError as e:
             logger.error(f"Job {job_id} not found: {e}")
-            raise HTTPException(status_code=404, detail=f"Job {job_id} not found.")
+
+            exception = OGCExceptionResponse(
+                type="http://www.opengis.net/def/exceptions/ogcapi-processes-1/1.0/no-such-job",
+                title="Job Not Found",
+                status=404,
+                detail=f"Job {job_id} not found.",
+                instance=f"/jobs/{job_id}"
+            )
+            raise HTTPException(status_code=404, detail=exception)
 
     @router.get("/jobs/{job_id}/results")
-    async def get_job_result(job_id: str):
+    async def get_job_result(job_id: str) -> dict | OGCExceptionResponse:
         logger.debug(f"Get job result endpoint accessed for job ID: {job_id}")
         try:
             return process_manager.get_job_result(job_id)
-        except ValueError as e:
+        
+        # ValueError: Here, 'job id does not exist' is meant.
+        except JobNotFoundError as e:
             logger.error(f"Job {job_id} not found: {e}")
-            raise HTTPException(status_code=404, detail=str(e))
+
+            exception = OGCExceptionResponse(
+                type="http://www.opengis.net/def/exceptions/ogcapi-processes-1/1.0/no-such-job",
+                title="Job Not Found",
+                status=404,
+                detail=f"Job {job_id} not found.",
+                instance=f"/jobs/{job_id}/results"
+            )
+            raise HTTPException(status_code=404, detail=exception)
+
+        except JobNotReadyError as e:
+            logger.info(f"Job {job_id} not ready: {e}")
+
+            exception = OGCExceptionResponse(
+                type="http://www.opengis.net/def/exceptions/ogcapi-processes-1/1.0/result-not-ready",
+                title="Result Not Ready",
+                status=404,
+                detail=f"Result for job {job_id} is not ready.",
+                instance=f"/jobs/{job_id}/results"
+            )
+
+            raise HTTPException(status_code=404, detail=exception)
+        
+        except JobFailedError as e:
+            logger.error(f"Job {job_id} failed: {e}")
+
+            exception = OGCExceptionResponse(
+                type="http://www.opengis.net/def/exceptions/ogcapi-processes-1/1.0/job-failed",
+                title="Job Failed",
+                status=500,
+                detail=f"{e.args[0]}. See logs for more details.",
+                instance=f"/jobs/{job_id}/results"
+            )
+
+            raise HTTPException(status_code=500, detail=exception)
+
+        except Exception as e:
+            logger.error(f"Unexpected error for job {job_id}: {e}")
+
+            exception = OGCExceptionResponse(
+                type="http://www.opengis.net/def/exceptions/ogcapi-processes-1/1.0/internal-server-error",
+                title="Internal Server Error",
+                status=500,
+                detail="An unexpected error occurred: See the log for details.",
+                instance=f"/jobs/{job_id}/results"
+            )
+
+            raise HTTPException(status_code=500, detail=exception)
 
     return router
