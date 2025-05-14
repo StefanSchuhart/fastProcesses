@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 import redis
 from fastapi.encoders import jsonable_encoder
@@ -32,9 +33,10 @@ class TempResultCache:
 
             return json.loads(serialized_value)
 
+        logger.info(f"Cache miss for key: {key}")
         return None
 
-    def put(self, key: str, value: dict) -> None:
+    def put(self, key: str, value: Any) -> None:
         logger.debug(f"Putting cache for key: {key}")
         key = self._make_key(key)
         jsonable_value = jsonable_encoder(value)
