@@ -36,13 +36,17 @@ class TempResultCache:
         logger.info(f"Cache miss for key: {key}")
         return None
 
-    def put(self, key: str, value: Any) -> None:
+    def put(self, key: str, value: Any) -> str:
         logger.debug(f"Putting cache for key: {key}")
         key = self._make_key(key)
-        jsonable_value = jsonable_encoder(value)
+        # note: exclude_none=True is used to exclude None values from the JSON serialization
+
+        jsonable_value = jsonable_encoder(value, exclude_none=True)
         serialized_value = json.dumps(jsonable_value)
         ttl = self._ttl_hours * 60 * 60  # Convert hours to seconds
         self._redis.setex(key, ttl, serialized_value)
+
+        return serialized_value
 
     def delete(self, key: str) -> None:
         logger.debug(f"Deleting cache for key: {key}")
