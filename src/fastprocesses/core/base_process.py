@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar, Dict, List
 
+from pydantic import BaseModel
+
 from fastprocesses.core.models import ProcessDescription
 from fastprocesses.core.types import JobProgressCallback
 
@@ -37,7 +39,7 @@ class BaseProcess(ABC):
     @abstractmethod
     async def execute(
         self, exec_body: Dict[str, Any], job_progress_callback: JobProgressCallback
-    ) -> Dict[str, Any]:
+    ) -> BaseModel:
         """
         Executes the process with given inputs.
 
