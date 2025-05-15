@@ -265,9 +265,12 @@ curl -X POST "http://localhost:8000/processes/simple_process/execution" \
      -H "Content-Type: application/json" \
      -H "Prefer: respond-async" \
      -d '{
-       "inputs": {
-         "input_text": "hello world"
-        }
+            "inputs": {
+                "input_text": "hello world"
+            },
+            "outputs": {
+                "lower": {}
+            }
        }'
 ```
 
@@ -277,8 +280,12 @@ curl -X POST "http://localhost:8000/processes/simple_process/execution" \
      -H "Content-Type: application/json" \
      -H "Prefer: respond-sync" \
      -d '{
-       "inputs": {
-         "input_text": "hello world"
+            "inputs": {
+                "input_text": "hello world"
+            },
+            "outputs": {
+                "lower": {}
+            }
        }'
 ```
 
