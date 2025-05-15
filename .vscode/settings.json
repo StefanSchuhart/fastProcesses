@@ -40,5 +40,6 @@
         "timeseries",
         "venv"
     ],
+    "python.analysis.typeCheckingMode": "standard",
    
 }

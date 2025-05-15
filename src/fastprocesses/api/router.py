@@ -225,7 +225,7 @@ def get_router(
             )
             raise HTTPException(status_code=404, detail=exception)
 
-    @router.get("/jobs/{job_id}/results")
+    @router.get("/jobs/{job_id}/results", response_model_exclude_none=True)
     async def get_job_result(job_id: str) -> dict | OGCExceptionResponse:
         logger.debug(f"Get job result endpoint accessed for job ID: {job_id}")
         try:

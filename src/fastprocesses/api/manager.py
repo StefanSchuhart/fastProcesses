@@ -303,13 +303,15 @@ class ProcessManager:
         if result.state == ("PENDING" or "STARTED" or "RETRY"):
             logger.error(f"Result for job ID {job_id} is not ready")
             raise JobNotReadyError(job_id)
-        
+
         if result.state == "FAILURE":
             logger.error(f"J{result.result}")
             raise JobFailedError(job_id, repr(result.result))
-        
+
         if result.state == "SUCCESS":
             logger.info(f"Job ID {job_id} completed successfully")
+
+            # in case of SUCCESS only, get the results directly (non-blocking)
             return result.result
 
     def delete_job(self, job_id: str) -> Dict[str, Any]:
