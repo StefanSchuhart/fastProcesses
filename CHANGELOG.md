@@ -15,9 +15,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 ### Planned
 - improve/implement retry mechanisms when calling celery tasks
 - further improve storing jobs and job results in cache using a dedicated object model (eventually using redis_om)
-- implement callback according to OGC API Processes
+- implement callback mechanism according to [OGC API Processes requirment class](https://docs.ogc.org/is/18-062r2/18-062r2.html#toc52)
 
-## [0.11.0] - 2025-04-25
+## [0.12.0] - 2025-05-15
+
+### Fixed
+- when retrieving results from cache user provided inputs *and outputs* will be factored in, not only inputs  
+- make sure outputs not specified by the user are excluded from /jobs/{jobId}/results page
+
+## [0.11.0] - 2025-05-14
 
 ### Added
 - log message when the cache is missed
