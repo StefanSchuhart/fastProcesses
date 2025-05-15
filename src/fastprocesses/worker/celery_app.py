@@ -198,14 +198,17 @@ def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
             )
             job_status = JobStatusCode.SUCCESSFUL
 
-        # Mark job as complete
-        update_job_status(
-            job_id, 100,
-            "Process completed",
-            job_status
-        )
+            # Mark job as complete
+            update_job_status(
+                job_id, 100,
+                "Process completed",
+                job_status
+            )
 
-    return result
+            return result.model_dump(exclude_none=True)
+    logger.info(
+        f"Process {service.__class__.__name__} execution completed. No result returned"
+    )
 
 
 @celery_app.task(name="check_cache")
