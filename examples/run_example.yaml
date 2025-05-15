@@ -16,8 +16,13 @@ inputs:
       minLength: 1
       maxLength: 1000
 outputs:
-  output_text:
-    title: Output Text
+  upper:
+    title: Output Text in UPPER cases
+    description: Processed text
+    schema:
+      type: string
+  lower:
+    title: Output Text in lower cases
     description: Processed text
     schema:
       type: string
