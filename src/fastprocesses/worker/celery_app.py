@@ -39,10 +39,10 @@ class CacheResultTask(Task):
 
             # Store the result in cache
             # Use the task ID as the key
-            temp_result_cache.put(key=key, value=retval)
+            serialized_result = temp_result_cache.put(key=key, value=retval)
 
             # TODO: shorten retval log!
-            logger.info(f"Saved result with key {key} to cache: {retval}")
+            logger.info(f"Saved result with key {key} to cache: {serialized_result[:80]}")
         except Exception as e:
             logger.error(f"Error caching results: {e}")
 
