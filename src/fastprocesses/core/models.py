@@ -94,7 +94,6 @@ class ProcessOutput(BaseModel):
 
     model_config = ConfigDict(
         populate_by_name=True,
-        exclude_none=True,
     )
 
 
@@ -164,8 +163,6 @@ class ProcessExecRequestBody(BaseModel):
     mode: Optional[ExecutionMode] = ExecutionMode.ASYNC
     response: Optional[ResponseType] = ResponseType.RAW
 
-    model_config = ConfigDict(exclude_none=True)
-
 
 def deserialize_json(value: Any) -> Any:
     return jsonable_encoder(value)
@@ -204,16 +201,6 @@ class ProcessExecResponse(BaseModel):
     type: str = "process"
 
 
-class ProcessSummary(BaseModel):
-    """
-    The OGC conform ProcessSummary Model.
-    """
-
-    id: str
-    version: str
-    links: Optional[list[Link]] = None
-
-
 class JobStatusInfo(BaseModel):
     jobID: str
     status: str
@@ -227,7 +214,9 @@ class JobStatusInfo(BaseModel):
     progress: Optional[int] = Field(None, ge=0, le=100)
     links: Optional[List[Link]] = []
 
-    model_config = ConfigDict(populate_by_name=True, exclude_none=True)
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
 
 
 class JobList(BaseModel):
