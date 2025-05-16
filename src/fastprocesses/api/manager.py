@@ -128,7 +128,7 @@ class SyncExecutionStrategy(ExecutionStrategy):
         self.process_manager.job_status_cache.put(f"job:{task.id}", job_status)
 
         return ProcessExecResponse(
-            status="successful", jobID=task.id, type="process", value=result
+            status="successful", jobID=task.id, type="process"
         )
 
 
@@ -144,7 +144,7 @@ class ProcessManager:
 
     def get_available_processes(
         self, limit: int, offset: int
-    ) -> Tuple[List[ProcessSummary], str]:
+    ) -> Tuple[List[ProcessDescription], str | None]:
         logger.info("Retrieving available processes")
         """
         Retrieves a list of available processes.
@@ -223,17 +223,24 @@ class ProcessManager:
             service.validate_inputs(data.inputs)
         except ValueError as e:
             logger.error(f"Input validation failed for process {process_id}: {str(e)}")
-            raise InputValidationError(f"Input validation failed: {str(e)}")
+            raise InputValidationError(
+                process_id,
+                repr(e)
+            )
 
         try:
             service.validate_outputs(data.outputs)
         except ValueError as e:
             logger.error(f"Output validation failed for process {process_id}: {str(e)}")
-            raise OutputValidationError(f"Output validation failed: {str(e)}")
+            raise OutputValidationError(
+                process_id,
+                repr(e)
+            )
 
         # Create calculation task
         calculation_task = CalculationTask(
-            inputs=data.inputs, outputs=data.outputs, response=data.response
+            inputs=data.inputs, outputs=data.outputs,
+            response=data.response
         )
 
         # Check cache first
@@ -311,8 +318,9 @@ class ProcessManager:
         if result.state == "SUCCESS":
             logger.info(f"Job ID {job_id} completed successfully")
 
+        task_result: dict[str, Any] = result.result
             # in case of SUCCESS only, get the results directly (non-blocking)
-            return result.result
+        return task_result
 
     def delete_job(self, job_id: str) -> Dict[str, Any]:
         logger.info(f"Deleting job ID: {job_id}")
@@ -335,7 +343,9 @@ class ProcessManager:
         result.forget()
         return {"status": "dismissed", "message": "Job dismissed"}
 
-    def get_jobs(self, limit: int, offset: int) -> List[Dict[str, Any]]:
+    def get_jobs(
+            self, limit: int, offset: int
+    ) -> Tuple[List[JobStatusInfo], str | None]:
         """
         Retrieves a list of all jobs and their status.
 
@@ -344,7 +354,7 @@ class ProcessManager:
         """
         # Get all job IDs from Redis
         job_keys = self.job_status_cache.keys("job:*")
-        jobs = []
+        jobs: List[JobStatusInfo] = []
 
         for job_key in job_keys[offset : offset + limit]:
             try:
