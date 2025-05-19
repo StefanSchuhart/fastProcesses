@@ -102,9 +102,8 @@ class BaseProcess(ABC):
         return True
 
     def validate_outputs(
-            self,
-            outputs: dict[str, dict[str, OutputControl]] | None
-        ) -> bool:
+        self, outputs: dict[str, dict[str, OutputControl]] | None
+    ) -> bool:
         """
         Validates the outputs parameter against the process description.
 
@@ -131,7 +130,9 @@ class BaseProcess(ABC):
             raise ValueError("Outputs must be a dict mapping.")
 
         # Validate each output identifier in the outputs dict
-        invalid_outputs = [out for out in outputs.keys() if out not in available_outputs]
+        invalid_outputs = [
+            out for out in outputs.keys() if out not in available_outputs
+        ]
         if invalid_outputs:
             available = ", ".join(available_outputs)
             invalid = ", ".join(invalid_outputs)
@@ -139,7 +140,7 @@ class BaseProcess(ABC):
                 f"Invalid output identifiers: {invalid}. "
                 f"Available outputs are: {available}"
             )
-        
+
         # Optionally, validate OutputControl objects if needed
         # for out, control in outputs.items():
         #     if not isinstance(control, dict) or not all(isinstance(v, OutputControl) for v in control.values()):
