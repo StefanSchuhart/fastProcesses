@@ -74,6 +74,10 @@ class OGCProcessesSettings(BaseSettings):
         default=365,  # 7 days
         description="Time to live for job status in days",
     )
+    SYNC_EXECUTION_TIMEOUT_SECONDS: int = Field(
+        default=10,
+        description="Timeout in seconds for synchronous execution waiting for result."
+    )
 
     @field_validator("CORS_ALLOWED_ORIGINS", mode="before")
     def parse_cors_origins(cls, v) -> list[str]:
