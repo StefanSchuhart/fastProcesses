@@ -64,9 +64,8 @@ def get_router(
         response_model=ProcessList
     )
     async def list_processes(
-        limit: int = Query(10, ge=1, le=10000),
-        offset: int = Query(0, ge=0)
-    ):
+        limit: int = Query(10, ge=1, le=10000), offset: int = Query(0, ge=0)
+    ) -> ProcessesSummary:
         logger.debug("List processes endpoint accessed")
 
         processes, next_link = process_manager.get_available_processes(limit, offset)
@@ -74,8 +73,11 @@ def get_router(
         if next_link:
             links.append(Link(href=next_link, rel="next", type="application/json"))
 
-        return ProcessList(
-            processes=processes,
+        return ProcessesSummary(
+            processes=ProcessList.validate_python([
+                desc.model_dump()
+                for desc in processes
+            ]),
             links=links
         )
 
