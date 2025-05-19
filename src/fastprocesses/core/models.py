@@ -77,7 +77,7 @@ class ProcessInput(BaseModel):
     title: str
     description: str
     scheme: Schema = Field(alias="schema")
-    minOccurs: Optional[int] = 1
+    minOccurs: int = 1
     maxOccurs: Optional[int] = 1
     metadata: Optional[Dict[str, Any]] = None
 
