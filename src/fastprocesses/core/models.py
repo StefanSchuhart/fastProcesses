@@ -23,6 +23,7 @@ class OGCExceptionResponse(BaseModel):
     detail: str
     instance: str | None = None
 
+
 class Link(BaseModel):
     href: str
     rel: str
@@ -171,7 +172,7 @@ class ProcessExecRequestBody(BaseModel):
     inputs: Dict[str, Any]
     outputs: dict[str, dict[str, OutputControl]] | None = None
     mode: Optional[ExecutionMode] = ExecutionMode.ASYNC
-    response: Optional[ResponseType] = ResponseType.RAW
+    response: ResponseType = ResponseType.RAW
 
 
 def deserialize_json(value: Any) -> Any:
@@ -179,25 +180,17 @@ def deserialize_json(value: Any) -> Any:
 
 
 class CalculationTask(BaseModel):
-    inputs: Annotated[
-        Dict[str, Any], AfterValidator(deserialize_json)
-    ]
-    outputs: Annotated[
-        dict[str, dict[str, OutputControl]], AfterValidator(deserialize_json)
-    ] | None = None
+    inputs: Annotated[Dict[str, Any], AfterValidator(deserialize_json)]
+    outputs: (
+        Annotated[dict[str, dict[str, OutputControl]], AfterValidator(deserialize_json)]
+        | None
+    ) = None
     response: ResponseType = ResponseType.RAW
 
     def _hash_dict(self):
-        data = {
-            "inputs": self.inputs,
-            "outputs": self.outputs
-        }
+        data = {"inputs": self.inputs, "outputs": self.outputs}
         return hashlib.sha256(
-            json.dumps(
-                data,
-                sort_keys=True,
-                default=str
-            ).encode()
+            json.dumps(data, sort_keys=True, default=str).encode()
         ).hexdigest()
 
     @computed_field
