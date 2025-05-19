@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Dict, List
+from typing import Any, ClassVar, Dict
 
 from pydantic import BaseModel
 
@@ -19,7 +19,8 @@ class BaseProcess(ABC):
         """
         if not hasattr(self, "process_description"):
             raise NotImplementedError(
-                f"Process class {self.__class__.__name__} must define 'process_description'"
+                f"Process class {self.__class__.__name__} must "
+                "define 'process_description'"
             )
         return self.process_description
 
@@ -38,7 +39,9 @@ class BaseProcess(ABC):
 
     @abstractmethod
     async def execute(
-        self, exec_body: Dict[str, Any], job_progress_callback: JobProgressCallback | None = None
+        self,
+        exec_body: Dict[str, Any],
+        job_progress_callback: JobProgressCallback | None = None,
     ) -> BaseModel:
         """
         Executes the process with given inputs.
