@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
 from celery.result import AsyncResult
+from fastprocesses.core.config import settings
+import celery.exceptions
 
 from fastprocesses.common import celery_app, job_status_cache, temp_result_cache
 from fastprocesses.core.exceptions import (
@@ -97,22 +99,23 @@ class SyncExecutionStrategy(ExecutionStrategy):
     def execute(
         self, process_id: str, calculation_task: CalculationTask
     ) -> ProcessExecResponse:
-        process = self.process_manager.process_registry.get_process(process_id)
-        # TODO: response type and outputs must be passed, too
-        result = process.execute(calculation_task.inputs)
 
+        # Submit task to Celery worker queue for background processing
+        serialized_data = json.dumps(
+            calculation_task.model_dump(include={"inputs", "outputs", "response"})
+        )
         task = self.process_manager.celery_app.send_task(
-            "store_result", args=[process_id, calculation_task.celery_key, result]
+            "execute_process", args=[process_id, serialized_data]
         )
 
+        # Initialize job metadata in cache with status 'running'
         job_status = JobStatusInfo.model_validate(
             {
                 "jobID": task.id,
-                "status": JobStatusCode.ACCEPTED,
+                "status": JobStatusCode.RUNNING,
                 "type": "process",
-                "process_id": process_id,
+                "processID": process_id,
                 "created": datetime.now(timezone.utc),
-                "updated": datetime.now(timezone.utc),
                 "progress": 0,
                 "links": [
                     Link.model_validate(
@@ -127,9 +130,66 @@ class SyncExecutionStrategy(ExecutionStrategy):
         )
         self.process_manager.job_status_cache.put(f"job:{task.id}", job_status)
 
-        return ProcessExecResponse(
-            status="successful", jobID=task.id, type="process"
+        # Wait for result with timeout
+        async_result = AsyncResult(task.id)
+        try:
+            result = async_result.get(
+                timeout=settings.SYNC_EXECUTION_TIMEOUT_SECONDS
+            )
+        except celery.exceptions.TimeoutError:
+            logger.error(
+                f"Synchronous execution for job {task.id} timed out after "
+                f"{settings.SYNC_EXECUTION_TIMEOUT_SECONDS} seconds."
+            )
+            raise JobNotReadyError(
+                f"Synchronous execution timed out after "
+                f"{settings.SYNC_EXECUTION_TIMEOUT_SECONDS} seconds."
+            )
+        except Exception as e:
+            logger.error(f"Synchronous execution for job {task.id} failed: {e}")
+            raise JobFailedError(task.id, repr(e))
+
+        # Update job status to successful
+        job_status = JobStatusInfo.model_validate(
+            {
+                "jobID": task.id,
+                "status": JobStatusCode.SUCCESSFUL,
+                "type": "process",
+                "processID": process_id,
+                "created": job_status.created,
+                "finished": datetime.now(timezone.utc),
+                "updated": datetime.now(timezone.utc),
+                "progress": 100,
+                "links": [
+                    Link.model_validate(
+                        {
+                            "href": f"/jobs/{task.id}/results",
+                            "rel": "results",
+                            "type": "application/json",
+                        }
+                    ),
+                    Link.model_validate(
+                        {
+                            "href": f"/jobs/{task.id}",
+                            "rel": "self",
+                            "type": "application/json",
+                        }
+                    ),
+                ],
+            }
         )
+        self.process_manager.job_status_cache.put(f"job:{task.id}", job_status)
+
+        # Return only the ProcessExecResponse; router can fetch result if needed
+        # The router expects to check for a 'value' attribute for sync mode
+        response = ProcessExecResponse(
+            status="successful",
+            jobID=task.id,
+            type="process"
+        )
+        # Attach the result as a dynamic attribute for router to use
+        setattr(response, "value", result)
+        return response
 
 
 class ProcessManager:
