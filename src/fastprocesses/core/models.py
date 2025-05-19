@@ -6,7 +6,14 @@ from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 import yaml
 from fastapi.encoders import jsonable_encoder
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, computed_field
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    computed_field
+)
 
 
 class OGCExceptionResponse(BaseModel):
@@ -141,8 +148,11 @@ class ProcessDescription(ProcessSummary):
         # Validate and parse the YAML data into the ProcessDescription model
         return cls.model_validate(yaml_data)
 
+ProcessList = TypeAdapter(
+    List[ProcessSummary]
+)
 
-class ProcessList(BaseModel):
+class ProcessesSummary(BaseModel):
     processes: List[ProcessSummary]
     links: Optional[List[Link]] = None
 
