@@ -20,17 +20,16 @@ from fastprocesses.core.models import (
     Link,
     OGCExceptionResponse,
     ProcessDescription,
+    ProcessList,
+    ProcessesSummary,
     ProcessExecRequestBody,
     ProcessExecResponse,
-    ProcessList,
 )
 
 
 def get_router(
-        process_manager: ProcessManager,
-        title: str,
-        description: str
-    ) -> APIRouter:
+    process_manager: ProcessManager, title: str, description: str
+) -> APIRouter:
     router = APIRouter()
 
     @router.get("/")
@@ -44,7 +43,7 @@ def get_router(
                 Link(href="/conformance", rel="conformance", type="application/json"),
                 Link(href="/processes", rel="processes", type="application/json"),
                 Link(href="/jobs", rel="jobs", type="application/json"),
-            ]
+            ],
         )
 
     @router.get("/conformance")
@@ -54,14 +53,12 @@ def get_router(
             conformsTo=[
                 "http://www.opengis.net/spec/ogcapi-processes-1/1.0/conf/core",
                 "http://www.opengis.net/spec/ogcapi-processes-1/1.0/conf/json"
-                "http://www.opengis.net/spec/ogcapi-processes-1/1.0/conf/job-list"
+                "http://www.opengis.net/spec/ogcapi-processes-1/1.0/conf/job-list",
             ]
         )
 
     @router.get(
-        "/processes",
-        response_model_exclude_none=True,
-        response_model=ProcessList
+        "/processes", response_model_exclude_none=True, response_model=ProcessesSummary
     )
     async def list_processes(
         limit: int = Query(10, ge=1, le=10000), offset: int = Query(0, ge=0)
@@ -81,13 +78,15 @@ def get_router(
             links=links
         )
 
+        ProcessList.validate_python([desc.model_dump() for desc in processes])
+
     @router.get(
-            "/processes/{process_id}",
-            response_model_exclude_none=True,
-            response_model=ProcessDescription
+        "/processes/{process_id}",
+        response_model_exclude_none=True,
+        response_model=ProcessDescription,
     )
     async def describe_process(
-        process_id: str
+        process_id: str,
     ) -> ProcessDescription | OGCExceptionResponse:
         logger.debug(f"Describe process endpoint accessed for process ID: {process_id}")
         try:
@@ -99,35 +98,32 @@ def get_router(
                 title="Process Not Found",
                 status=404,
                 detail=f"Process '{process_id}' not found.",
-                instance=f"/processes/{process_id}"
+                instance=f"/processes/{process_id}",
             )
             raise HTTPException(status_code=404, detail=exception)
 
-
     @router.post(
-        "/processes/{process_id}/execution",
-        response_model=ProcessExecResponse
+        "/processes/{process_id}/execution", response_model=ProcessExecResponse
     )
     async def execute_process(
         process_id: str,
         request: ProcessExecRequestBody,
         response: Response,
-        prefer: str = Header(None, alias="Prefer")
-    ) -> JSONResponse:
+        prefer: str = Header(None, alias="Prefer"),
+    ) -> ProcessExecResponse | OGCExceptionResponse:
         logger.debug(f"Execute process endpoint accessed for process ID: {process_id}")
-        
+
         execution_mode = ExecutionMode.ASYNC
         if prefer and "respond-sync" in prefer:
             execution_mode = ExecutionMode.SYNC
-        
+
         logger.debug(f"Execution mode set to: {execution_mode}")
 
         try:
             result = process_manager.execute_process(
-                process_id, request,
-                execution_mode
+                process_id, request, execution_mode
             )
-            
+
             # Set response status code based on execution mode
             if execution_mode == ExecutionMode.ASYNC:
                 response.status_code = status.HTTP_201_CREATED
@@ -141,8 +137,9 @@ def get_router(
                 else:
                     response.status_code = status.HTTP_204_NO_CONTENT
                     # TODO: need to add link headers with location to output
-            
+
             return result
+
         except ProcessNotFoundError as e:
             logger.error(f"Process {process_id} not found: {e}")
             exception = OGCExceptionResponse(
@@ -150,20 +147,22 @@ def get_router(
                 title="Process Not Found",
                 status=404,
                 detail=f"Process {process_id} not found.",
-                instance=f"/processes/{process_id}"
+                instance=f"/processes/{process_id}",
             )
             raise HTTPException(status_code=404, detail=exception)
 
         except InputValidationError as e:
             error_message = str(e)
-            logger.error(f"Input validation error for process {process_id}: {error_message}")
-            
+            logger.error(
+                f"Input validation error for process {process_id}: {error_message}"
+            )
+
             exception = OGCExceptionResponse(
                 type="http://www.opengis.net/def/exceptions/ogcapi-processes-1/1.0/no-such-process",
                 title="Validation error",
                 status=400,
                 detail=f"Process {process_id}: Input validation failed. {error_message}",
-                instance=f"/processes/{process_id}"
+                instance=f"/processes/{process_id}",
             )
             raise HTTPException(status_code=400, detail=exception)
 
@@ -175,24 +174,20 @@ def get_router(
                 title="Validation error",
                 status=400,
                 detail=f"Process {process_id}: Output validation failed. {error_message}",
-                instance=f"/processes/{process_id}"
+                instance=f"/processes/{process_id}",
             )
 
-            logger.error(f"Output validation error for process {process_id}: {error_message}")
-            
+            logger.error(
+                f"Output validation error for process {process_id}: {error_message}"
+            )
+
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=exception
+                status_code=status.HTTP_400_BAD_REQUEST, detail=exception
             )
 
-    @router.get(
-        "/jobs",
-        response_model_exclude_none=True,
-        response_model=JobList
-    )
+    @router.get("/jobs", response_model_exclude_none=True, response_model=JobList)
     async def list_jobs(
-        limit: int = Query(10, ge=1, le=1000),
-        offset: int = Query(0, ge=0)
+        limit: int = Query(10, ge=1, le=1000), offset: int = Query(0, ge=0)
     ) -> JobList:
         """
         Lists all jobs.
@@ -203,11 +198,7 @@ def get_router(
         if next_link:
             links.append(Link(href=next_link, rel="next", type="application/json"))
 
-        return JobList(
-            jobs=jobs,
-            links=links
-        )
-
+        return JobList(jobs=jobs, links=links)
 
     @router.get("/jobs/{job_id}")
     async def get_job_status(job_id: str) -> JobStatusInfo | OGCExceptionResponse:
@@ -223,7 +214,7 @@ def get_router(
                 title="Job Not Found",
                 status=404,
                 detail=f"Job {job_id} not found.",
-                instance=f"/jobs/{job_id}"
+                instance=f"/jobs/{job_id}",
             )
             raise HTTPException(status_code=404, detail=exception)
 
@@ -232,7 +223,7 @@ def get_router(
         logger.debug(f"Get job result endpoint accessed for job ID: {job_id}")
         try:
             return process_manager.get_job_result(job_id)
-        
+
         # ValueError: Here, 'job id does not exist' is meant.
         except JobNotFoundError as e:
             logger.error(f"Job {job_id} not found: {e}")
@@ -242,7 +233,7 @@ def get_router(
                 title="Job Not Found",
                 status=404,
                 detail=f"Job {job_id} not found.",
-                instance=f"/jobs/{job_id}/results"
+                instance=f"/jobs/{job_id}/results",
             )
             raise HTTPException(status_code=404, detail=exception)
 
@@ -254,11 +245,11 @@ def get_router(
                 title="Result Not Ready",
                 status=404,
                 detail=f"Result for job {job_id} is not ready.",
-                instance=f"/jobs/{job_id}/results"
+                instance=f"/jobs/{job_id}/results",
             )
 
             raise HTTPException(status_code=404, detail=exception)
-        
+
         except JobFailedError as e:
             logger.error(f"Job {job_id} failed: {e}")
 
@@ -267,7 +258,7 @@ def get_router(
                 title="Job Failed",
                 status=500,
                 detail=f"{e.args[0]}. See logs for more details.",
-                instance=f"/jobs/{job_id}/results"
+                instance=f"/jobs/{job_id}/results",
             )
 
             raise HTTPException(status_code=500, detail=exception)
@@ -280,7 +271,7 @@ def get_router(
                 title="Internal Server Error",
                 status=500,
                 detail="An unexpected error occurred: See the log for details.",
-                instance=f"/jobs/{job_id}/results"
+                instance=f"/jobs/{job_id}/results",
             )
 
             raise HTTPException(status_code=500, detail=exception)
