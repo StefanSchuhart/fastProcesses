@@ -7,7 +7,7 @@ from fastprocesses.core.logging import logger
 class ResultCacheConnectionConfig(BaseSettings):
     RESULT_CACHE_HOST: str = "redis"
     RESULT_CACHE_PORT: int = 6379
-    RESULT_CACHE_DB: str = 1
+    RESULT_CACHE_DB: str = "1"
     RESULT_CACHE_PASSWORD: SecretStr = ""
 
     @computed_field
@@ -25,7 +25,7 @@ class ResultCacheConnectionConfig(BaseSettings):
 class CeleryConnectionConfig(BaseSettings):
     CELERY_BROKER_HOST: str = "redis"
     CELERY_BROKER_PORT: int = 6379
-    CELERY_BROKER_DB: str = 0
+    CELERY_BROKER_DB: str = "0"
     CELERY_BROKER_PASSWORD: SecretStr = ""
 
     @computed_field
