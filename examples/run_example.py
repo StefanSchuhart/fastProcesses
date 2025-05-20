@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any, Callable, Dict
+from typing import Any, Callable
 
 import uvicorn
 from pydantic import BaseModel
@@ -45,17 +45,19 @@ class SimpleProcess(BaseProcess):
     async def execute(
         self,
         exec_body: dict[str, dict],
-        job_progress_callback: JobProgressCallback
+        job_progress_callback: JobProgressCallback | None = None
     ) -> BaseModel:
 
         # Report start if callback is provided
 
-        job_progress_callback(10, "Processing input")
+        if job_progress_callback:
+            job_progress_callback(10, "Processing input")
 
         text_model = TextModel.model_validate(exec_body["inputs"])
 
         # Simulate some processing time
-        job_progress_callback(30, "Converting text")
+        if job_progress_callback:
+            job_progress_callback(30, "Converting text")
 
         await asyncio.sleep(5)  # Simulate work
 
@@ -68,11 +70,13 @@ class SimpleProcess(BaseProcess):
 
         output_model = TextModelOut.model_validate(output)
 
-        job_progress_callback(70, "Finalizing results")
+        if job_progress_callback:
+            job_progress_callback(70, "Finalizing results")
 
         await asyncio.sleep(0.3)  # More simulated work
 
-        job_progress_callback(90, "Preparing output")
+        if job_progress_callback:
+            job_progress_callback(90, "Preparing output")
 
         # raise Exception("This is a test exception")
 
@@ -117,7 +121,7 @@ class SimpleProcess_2(BaseProcess):
         self,
         exec_body: dict[str, Any],
         job_progress_callback: Callable[[int, str], None] | None = None
-    ) -> Dict[str, Any]:
+    ) -> BaseModel:
 
         # Report start if callback is provided
         if job_progress_callback:
@@ -131,7 +135,7 @@ class SimpleProcess_2(BaseProcess):
 
         await asyncio.sleep(0.5)  # Simulate work
         output_text = text_model.input_text.upper()
-        output_model = TextModelOut(output_text=output_text)
+        output_model = TextModelOut(upper=output_text)
 
         if job_progress_callback:
             job_progress_callback(70, "Finalizing results")
