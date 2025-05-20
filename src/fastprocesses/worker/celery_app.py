@@ -7,7 +7,6 @@ from typing import Any, Dict
 
 from celery import Task
 from celery.exceptions import SoftTimeLimitExceeded
-from celery.signals import task_failure
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 
@@ -51,7 +50,7 @@ class CacheResultTask(Task):
 def update_job_status(
     job_id: str,
     progress: int,
-    message: str = None,
+    message: str | None = None,
     status: str | None = None,
     started: datetime | None = None,
 ) -> None:
@@ -92,7 +91,7 @@ def update_job_status(
 
 
 @celery_app.task(bind=True, name="execute_process", base=CacheResultTask)
-def execute_process(self, process_id: str, serialized_data: Dict[str, Any]):
+def execute_process(self, process_id: str, serialized_data: str | bytes):
     def job_progress_callback(progress: int, message: str | None = None):
         """
         Updates the progress of a job.
