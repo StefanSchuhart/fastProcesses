@@ -194,6 +194,7 @@ class CalculationTask(BaseModel):
         ).hexdigest()
 
     @computed_field
+    @property
     def celery_key(self) -> str:
         return self._hash_dict()
 
@@ -215,7 +216,7 @@ class JobStatusInfo(BaseModel):
     finished: Optional[datetime] = None
     updated: Optional[datetime] = None
     progress: Optional[int] = Field(None, ge=0, le=100)
-    links: Optional[List[Link]] = []
+    links: List[Link] = []
 
     model_config = ConfigDict(
         populate_by_name=True,
