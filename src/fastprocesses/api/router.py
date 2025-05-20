@@ -1,3 +1,4 @@
+from typing import Any
 from fastapi import APIRouter, Header, HTTPException, Query, Response, status
 from fastapi.responses import JSONResponse
 
@@ -20,10 +21,10 @@ from fastprocesses.core.models import (
     Link,
     OGCExceptionResponse,
     ProcessDescription,
-    ProcessList,
     ProcessesSummary,
     ProcessExecRequestBody,
     ProcessExecResponse,
+    ProcessList,
 )
 
 
@@ -71,11 +72,10 @@ def get_router(
             links.append(Link(href=next_link, rel="next", type="application/json"))
 
         return ProcessesSummary(
-            processes=ProcessList.validate_python([
-                desc.model_dump()
-                for desc in processes
-            ]),
-            links=links
+            processes=ProcessList.validate_python(
+                [desc.model_dump() for desc in processes]
+            ),
+            links=links,
         )
 
         ProcessList.validate_python([desc.model_dump() for desc in processes])
