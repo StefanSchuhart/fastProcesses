@@ -110,7 +110,7 @@ def get_router(
         request: ProcessExecRequestBody,
         response: Response,
         prefer: str = Header(None, alias="Prefer"),
-    ) -> ProcessExecResponse | OGCExceptionResponse:
+    ) -> ProcessExecResponse | OGCExceptionResponse | Any:
         logger.debug(f"Execute process endpoint accessed for process ID: {process_id}")
 
         execution_mode = ExecutionMode.ASYNC
@@ -120,25 +120,35 @@ def get_router(
         logger.debug(f"Execution mode set to: {execution_mode}")
 
         try:
-            result = process_manager.execute_process(
+            result: ProcessExecResponse | Any = process_manager.execute_process(
                 process_id, request, execution_mode
             )
 
-            # Set response status code based on execution mode
+            # If result is not a ProcessExecResponse, treat as ready result (sync)
+            if not isinstance(result, ProcessExecResponse):
+                response.status_code = status.HTTP_200_OK
+                return result
+
+            # Async: job info, not ready
             if execution_mode == ExecutionMode.ASYNC:
                 response.status_code = status.HTTP_201_CREATED
-                # Add Location header for async execution
                 response.headers["Location"] = f"/jobs/{result.jobID}"
-            else:
-                # For sync execution with results
-                if result.value:
-                    response.status_code = status.HTTP_200_OK
-                # For sync execution without results
-                else:
-                    response.status_code = status.HTTP_204_NO_CONTENT
-                    # TODO: need to add link headers with location to output
+                return result
 
+            # Sync: job info, not ready (timeout)
+            response.status_code = status.HTTP_202_ACCEPTED
             return result
+
+        except JobFailedError as e:
+            logger.error(f"Job failed for process {process_id}: {e}")
+            exception = OGCExceptionResponse(
+                type="http://www.opengis.net/def/exceptions/ogcapi-processes-1/1.0/job-failed",
+                title="Sync execution failed",
+                status=500,
+                detail=f"Job failed: {e.args[0]}. See logs for more details.",
+                instance=f"/processes/{process_id}/execution",
+            )
+            raise HTTPException(status_code=500, detail=exception)
 
         except ProcessNotFoundError as e:
             logger.error(f"Process {process_id} not found: {e}")
@@ -161,7 +171,10 @@ def get_router(
                 type="http://www.opengis.net/def/exceptions/ogcapi-processes-1/1.0/no-such-process",
                 title="Validation error",
                 status=400,
-                detail=f"Process {process_id}: Input validation failed. {error_message}",
+                detail=(
+                    f"Process {process_id}: Input validation failed. "
+                    f"{error_message}"
+                ),
                 instance=f"/processes/{process_id}",
             )
             raise HTTPException(status_code=400, detail=exception)
@@ -173,7 +186,10 @@ def get_router(
                 type="http://www.opengis.net/def/exceptions/ogcapi-processes-1/1.0/no-such-process",
                 title="Validation error",
                 status=400,
-                detail=f"Process {process_id}: Output validation failed. {error_message}",
+                detail=(
+                    f"Process {process_id}: Output validation failed. "
+                    f"{error_message}"
+                ),
                 instance=f"/processes/{process_id}",
             )
 
