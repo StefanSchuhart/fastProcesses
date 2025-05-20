@@ -26,7 +26,6 @@ from fastprocesses.core.models import (
     ProcessDescription,
     ProcessExecRequestBody,
     ProcessExecResponse,
-    ProcessSummary,
 )
 from fastprocesses.processes.process_registry import get_process_registry
 
