@@ -98,7 +98,9 @@ class SyncExecutionStrategy(ExecutionStrategy):
 
     def execute(
         self, process_id: str, calculation_task: CalculationTask
-    ) -> ProcessExecResponse:
+    ) -> ProcessExecResponse | Any:
+
+        result: Any = None
 
         # Submit task to Celery worker queue for background processing
         serialized_data = json.dumps(
@@ -136,15 +138,19 @@ class SyncExecutionStrategy(ExecutionStrategy):
             result = async_result.get(
                 timeout=settings.SYNC_EXECUTION_TIMEOUT_SECONDS
             )
+
         except celery.exceptions.TimeoutError:
             logger.error(
                 f"Synchronous execution for job {task.id} timed out after "
                 f"{settings.SYNC_EXECUTION_TIMEOUT_SECONDS} seconds."
             )
-            raise JobNotReadyError(
-                f"Synchronous execution timed out after "
-                f"{settings.SYNC_EXECUTION_TIMEOUT_SECONDS} seconds."
+            # Return ProcessExecResponse with status 'running', no result yet
+            response = ProcessExecResponse(
+                status="running",
+                jobID=task.id,
+                type="process"
             )
+            return response
         except Exception as e:
             logger.error(f"Synchronous execution for job {task.id} failed: {e}")
             raise JobFailedError(task.id, repr(e))
@@ -180,17 +186,7 @@ class SyncExecutionStrategy(ExecutionStrategy):
         )
         self.process_manager.job_status_cache.put(f"job:{task.id}", job_status)
 
-        # Return only the ProcessExecResponse; router can fetch result if needed
-        # The router expects to check for a 'value' attribute for sync mode
-        response = ProcessExecResponse(
-            status="successful",
-            jobID=task.id,
-            type="process"
-        )
-        # Attach the result as a dynamic attribute for router to use
-        setattr(response, "value", result)
-        return response
-
+        return result
 
 class ProcessManager:
     """Manages processes, including execution, status checking, and job management."""
