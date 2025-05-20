@@ -7,7 +7,7 @@ from fastprocesses.core.logging import logger
 class ResultCacheConnectionConfig(BaseSettings):
     RESULT_CACHE_HOST: str = "redis"
     RESULT_CACHE_PORT: int = 6379
-    RESULT_CACHE_DB: str = 1
+    RESULT_CACHE_DB: str = "1"
     RESULT_CACHE_PASSWORD: SecretStr = ""
 
     @computed_field
@@ -22,10 +22,15 @@ class ResultCacheConnectionConfig(BaseSettings):
         )
 
 
+    @classmethod
+    def get(cls):
+        return cls()
+
+
 class CeleryConnectionConfig(BaseSettings):
     CELERY_BROKER_HOST: str = "redis"
     CELERY_BROKER_PORT: int = 6379
-    CELERY_BROKER_DB: str = 0
+    CELERY_BROKER_DB: str = "0"
     CELERY_BROKER_PASSWORD: SecretStr = ""
 
     @computed_field
@@ -39,19 +44,23 @@ class CeleryConnectionConfig(BaseSettings):
             password=self.CELERY_BROKER_PASSWORD.get_secret_value(),
         )
 
+    @classmethod
+    def get(cls):
+        return cls()
+
 
 class OGCProcessesSettings(BaseSettings):
     api_title: str = "Simple Process API"
     api_version: str = "1.0.0"
     api_description: str = "A simple API for running processes"
     celery_broker: CeleryConnectionConfig = Field(
-        default_factory=CeleryConnectionConfig
+        default_factory=CeleryConnectionConfig.get
     )
     celery_result: CeleryConnectionConfig = Field(
-        default_factory=CeleryConnectionConfig
+        default_factory=CeleryConnectionConfig.get
     )
     results_cache: ResultCacheConnectionConfig = Field(
-        default_factory=ResultCacheConnectionConfig
+        default_factory=ResultCacheConnectionConfig.get
     )
     CORS_ALLOWED_ORIGINS: list[AnyUrl | str] = ["*"]
     CELERY_RESULTS_TTL_DAYS: int = 365
@@ -64,6 +73,10 @@ class OGCProcessesSettings(BaseSettings):
     JOB_STATUS_TTL_DAYS: int = Field(
         default=365,  # 7 days
         description="Time to live for job status in days",
+    )
+    SYNC_EXECUTION_TIMEOUT_SECONDS: int = Field(
+        default=10,
+        description="Timeout in seconds for synchronous execution waiting for result."
     )
 
     @field_validator("CORS_ALLOWED_ORIGINS", mode="before")

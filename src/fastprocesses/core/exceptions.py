@@ -44,3 +44,9 @@ class OutputValidationError(FastProcessesError):
 
     def __init__(self, process_id: str, error: str):
         super().__init__(f"Output validation failed for process {process_id}: {error}")
+
+class ProcessClassNotFoundError(FastProcessesError):
+    """Raised when a process class is not found in the registry."""
+
+    def __init__(self, process_class: str):
+        super().__init__(f"Process class {process_class} not found")

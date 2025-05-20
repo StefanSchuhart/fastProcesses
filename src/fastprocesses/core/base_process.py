@@ -1,9 +1,9 @@
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Dict, List
+from typing import Any, ClassVar, Dict
 
 from pydantic import BaseModel
 
-from fastprocesses.core.models import ProcessDescription
+from fastprocesses.core.models import OutputControl, ProcessDescription
 from fastprocesses.core.types import JobProgressCallback
 
 
@@ -19,7 +19,8 @@ class BaseProcess(ABC):
         """
         if not hasattr(self, "process_description"):
             raise NotImplementedError(
-                f"Process class {self.__class__.__name__} must define 'process_description'"
+                f"Process class {self.__class__.__name__} must "
+                "define 'process_description'"
             )
         return self.process_description
 
@@ -38,7 +39,9 @@ class BaseProcess(ABC):
 
     @abstractmethod
     async def execute(
-        self, exec_body: Dict[str, Any], job_progress_callback: JobProgressCallback
+        self,
+        exec_body: Dict[str, Any],
+        job_progress_callback: JobProgressCallback | None = None,
     ) -> BaseModel:
         """
         Executes the process with given inputs.
@@ -75,7 +78,7 @@ class BaseProcess(ABC):
             if input_desc.minOccurs > 0 and input_name not in inputs:
                 raise ValueError(
                     f"Missing required input '{input_name}'. "
-                    f"Description: {input_desc.get('description', 'No description available')}"
+                    f"Description: {input_desc.description}"
                 )
 
             # Validate input type if schema is provided
@@ -87,7 +90,7 @@ class BaseProcess(ABC):
                     raise ValueError(
                         f"Invalid type for input '{input_name}'. "
                         f"Expected string, got {type(inputs[input_name]).__name__}. "
-                        f"Description: {input_desc.get('description', 'No description available')}"
+                        f"Description: {input_desc.description}"
                     )
                 elif expected_type == "number" and not isinstance(
                     inputs[input_name], (int, float)
@@ -95,13 +98,15 @@ class BaseProcess(ABC):
                     raise ValueError(
                         f"Invalid type for input '{input_name}'. "
                         f"Expected number, got {type(inputs[input_name]).__name__}. "
-                        f"Description: {input_desc.get('description', 'No description available')}"
+                        f"Description: {input_desc.description}"
                     )
                 # Add more type validations as needed
 
         return True
 
-    def validate_outputs(self, outputs: str | List[str]) -> bool:
+    def validate_outputs(
+        self, outputs: dict[str, dict[str, OutputControl]] | None
+    ) -> bool:
         """
         Validates the outputs parameter against the process description.
 
@@ -120,15 +125,17 @@ class BaseProcess(ABC):
         if not available_outputs:
             raise ValueError("Process has no defined outputs")
 
-        # Convert single string to list for uniform handling
-        output_list = [outputs] if isinstance(outputs, str) else outputs
-
-        if not output_list:
+        if outputs is None:
             # If no outputs specified, all outputs are considered valid
             return True
 
-        # Validate each output identifier
-        invalid_outputs = [out for out in output_list if out not in available_outputs]
+        if not isinstance(outputs, dict):
+            raise ValueError("Outputs must be a dict mapping.")
+
+        # Validate each output identifier in the outputs dict
+        invalid_outputs = [
+            out for out in outputs.keys() if out not in available_outputs
+        ]
         if invalid_outputs:
             available = ", ".join(available_outputs)
             invalid = ", ".join(invalid_outputs)
@@ -136,5 +143,10 @@ class BaseProcess(ABC):
                 f"Invalid output identifiers: {invalid}. "
                 f"Available outputs are: {available}"
             )
+
+        # Optionally, validate OutputControl objects if needed
+        # for out, control in outputs.items():
+        #     if not isinstance(control, dict) or not all(isinstance(v, OutputControl) for v in control.values()):
+        #         raise ValueError(f"Output '{out}' must map to a dict of OutputControl objects.")
 
         return True

@@ -6,7 +6,14 @@ from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 import yaml
 from fastapi.encoders import jsonable_encoder
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, computed_field
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    computed_field
+)
 
 
 class OGCExceptionResponse(BaseModel):
@@ -15,6 +22,7 @@ class OGCExceptionResponse(BaseModel):
     status: int
     detail: str
     instance: str | None = None
+
 
 class Link(BaseModel):
     href: str
@@ -77,7 +85,7 @@ class ProcessInput(BaseModel):
     title: str
     description: str
     scheme: Schema = Field(alias="schema")
-    minOccurs: Optional[int] = 1
+    minOccurs: int = 1
     maxOccurs: Optional[int] = 1
     metadata: Optional[Dict[str, Any]] = None
 
@@ -94,7 +102,6 @@ class ProcessOutput(BaseModel):
 
     model_config = ConfigDict(
         populate_by_name=True,
-        exclude_none=True,
     )
 
 
@@ -142,8 +149,11 @@ class ProcessDescription(ProcessSummary):
         # Validate and parse the YAML data into the ProcessDescription model
         return cls.model_validate(yaml_data)
 
+ProcessList = TypeAdapter(
+    List[ProcessSummary]
+)
 
-class ProcessList(BaseModel):
+class ProcessesSummary(BaseModel):
     processes: List[ProcessSummary]
     links: Optional[List[Link]] = None
 
@@ -162,9 +172,7 @@ class ProcessExecRequestBody(BaseModel):
     inputs: Dict[str, Any]
     outputs: dict[str, dict[str, OutputControl]] | None = None
     mode: Optional[ExecutionMode] = ExecutionMode.ASYNC
-    response: Optional[ResponseType] = ResponseType.RAW
-
-    model_config = ConfigDict(exclude_none=True)
+    response: ResponseType = ResponseType.RAW
 
 
 def deserialize_json(value: Any) -> Any:
@@ -172,28 +180,21 @@ def deserialize_json(value: Any) -> Any:
 
 
 class CalculationTask(BaseModel):
-    inputs: Annotated[
-        Dict[str, Any], AfterValidator(deserialize_json)
-    ]
-    outputs: Annotated[
-        dict[str, dict[str, OutputControl]], AfterValidator(deserialize_json)
-    ] | None = None
+    inputs: Annotated[Dict[str, Any], AfterValidator(deserialize_json)]
+    outputs: (
+        Annotated[dict[str, dict[str, OutputControl]], AfterValidator(deserialize_json)]
+        | None
+    ) = None
     response: ResponseType = ResponseType.RAW
 
     def _hash_dict(self):
-        data = {
-            "inputs": self.inputs,
-            "outputs": self.outputs
-        }
+        data = {"inputs": self.inputs, "outputs": self.outputs}
         return hashlib.sha256(
-            json.dumps(
-                data,
-                sort_keys=True,
-                default=str
-            ).encode()
+            json.dumps(data, sort_keys=True, default=str).encode()
         ).hexdigest()
 
     @computed_field
+    @property
     def celery_key(self) -> str:
         return self._hash_dict()
 
@@ -202,16 +203,6 @@ class ProcessExecResponse(BaseModel):
     status: str
     jobID: str
     type: str = "process"
-
-
-class ProcessSummary(BaseModel):
-    """
-    The OGC conform ProcessSummary Model.
-    """
-
-    id: str
-    version: str
-    links: Optional[list[Link]] = None
 
 
 class JobStatusInfo(BaseModel):
@@ -225,9 +216,11 @@ class JobStatusInfo(BaseModel):
     finished: Optional[datetime] = None
     updated: Optional[datetime] = None
     progress: Optional[int] = Field(None, ge=0, le=100)
-    links: Optional[List[Link]] = []
+    links: List[Link] = []
 
-    model_config = ConfigDict(populate_by_name=True, exclude_none=True)
+    model_config = ConfigDict(
+        populate_by_name=True,
+    )
 
 
 class JobList(BaseModel):

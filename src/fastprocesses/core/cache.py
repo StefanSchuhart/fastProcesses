@@ -14,7 +14,7 @@ from fastprocesses.core.logging import logger
 class TempResultCache:
     def __init__(self, key_prefix: str, ttl_hours: int):
         self._retry = Retry(ExponentialBackoff(cap=10, base=1), -1)
-        self._redis = redis.Redis.from_url(
+        self._redis: redis.Redis = redis.Redis.from_url(
             str(settings.results_cache.connection),
             retry=self._retry,
             retry_on_error=[ConnectionError, TimeoutError, ConnectionResetError],
@@ -23,7 +23,7 @@ class TempResultCache:
         self._key_prefix = key_prefix
         self._ttl_hours = ttl_hours
 
-    def get(self, key: str) -> dict:
+    def get(self, key: str) -> dict | None:
         logger.debug(f"Getting cache for key: {key}")
         key = self._make_key(key)
         serialized_value = self._redis.get(key)

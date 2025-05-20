@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
 from celery.result import AsyncResult
+from fastprocesses.core.config import settings
+import celery.exceptions
 
 from fastprocesses.common import celery_app, job_status_cache, temp_result_cache
 from fastprocesses.core.exceptions import (
@@ -24,7 +26,6 @@ from fastprocesses.core.models import (
     ProcessDescription,
     ProcessExecRequestBody,
     ProcessExecResponse,
-    ProcessSummary,
 )
 from fastprocesses.processes.process_registry import get_process_registry
 
@@ -96,23 +97,26 @@ class SyncExecutionStrategy(ExecutionStrategy):
 
     def execute(
         self, process_id: str, calculation_task: CalculationTask
-    ) -> ProcessExecResponse:
-        process = self.process_manager.process_registry.get_process(process_id)
-        # TODO: response type and outputs must be passed, too
-        result = process.execute(calculation_task.inputs)
+    ) -> ProcessExecResponse | Any:
 
+        result: Any = None
+
+        # Submit task to Celery worker queue for background processing
+        serialized_data = json.dumps(
+            calculation_task.model_dump(include={"inputs", "outputs", "response"})
+        )
         task = self.process_manager.celery_app.send_task(
-            "store_result", args=[process_id, calculation_task.celery_key, result]
+            "execute_process", args=[process_id, serialized_data]
         )
 
+        # Initialize job metadata in cache with status 'running'
         job_status = JobStatusInfo.model_validate(
             {
                 "jobID": task.id,
-                "status": JobStatusCode.ACCEPTED,
+                "status": JobStatusCode.RUNNING,
                 "type": "process",
-                "process_id": process_id,
+                "processID": process_id,
                 "created": datetime.now(timezone.utc),
-                "updated": datetime.now(timezone.utc),
                 "progress": 0,
                 "links": [
                     Link.model_validate(
@@ -127,10 +131,61 @@ class SyncExecutionStrategy(ExecutionStrategy):
         )
         self.process_manager.job_status_cache.put(f"job:{task.id}", job_status)
 
-        return ProcessExecResponse(
-            status="successful", jobID=task.id, type="process", value=result
-        )
+        # Wait for result with timeout
+        async_result = AsyncResult(task.id)
+        try:
+            result = async_result.get(
+                timeout=settings.SYNC_EXECUTION_TIMEOUT_SECONDS
+            )
 
+        except celery.exceptions.TimeoutError:
+            logger.error(
+                f"Synchronous execution for job {task.id} timed out after "
+                f"{settings.SYNC_EXECUTION_TIMEOUT_SECONDS} seconds."
+            )
+            # Return ProcessExecResponse with status 'running', no result yet
+            response = ProcessExecResponse(
+                status="running",
+                jobID=task.id,
+                type="process"
+            )
+            return response
+        except Exception as e:
+            logger.error(f"Synchronous execution for job {task.id} failed: {e}")
+            raise JobFailedError(task.id, repr(e))
+
+        # Update job status to successful
+        job_status = JobStatusInfo.model_validate(
+            {
+                "jobID": task.id,
+                "status": JobStatusCode.SUCCESSFUL,
+                "type": "process",
+                "processID": process_id,
+                "created": job_status.created,
+                "finished": datetime.now(timezone.utc),
+                "updated": datetime.now(timezone.utc),
+                "progress": 100,
+                "links": [
+                    Link.model_validate(
+                        {
+                            "href": f"/jobs/{task.id}/results",
+                            "rel": "results",
+                            "type": "application/json",
+                        }
+                    ),
+                    Link.model_validate(
+                        {
+                            "href": f"/jobs/{task.id}",
+                            "rel": "self",
+                            "type": "application/json",
+                        }
+                    ),
+                ],
+            }
+        )
+        self.process_manager.job_status_cache.put(f"job:{task.id}", job_status)
+
+        return result
 
 class ProcessManager:
     """Manages processes, including execution, status checking, and job management."""
@@ -144,7 +199,7 @@ class ProcessManager:
 
     def get_available_processes(
         self, limit: int, offset: int
-    ) -> Tuple[List[ProcessSummary], str]:
+    ) -> Tuple[List[ProcessDescription], str | None]:
         logger.info("Retrieving available processes")
         """
         Retrieves a list of available processes.
@@ -223,17 +278,24 @@ class ProcessManager:
             service.validate_inputs(data.inputs)
         except ValueError as e:
             logger.error(f"Input validation failed for process {process_id}: {str(e)}")
-            raise InputValidationError(f"Input validation failed: {str(e)}")
+            raise InputValidationError(
+                process_id,
+                repr(e)
+            )
 
         try:
             service.validate_outputs(data.outputs)
         except ValueError as e:
             logger.error(f"Output validation failed for process {process_id}: {str(e)}")
-            raise OutputValidationError(f"Output validation failed: {str(e)}")
+            raise OutputValidationError(
+                process_id,
+                repr(e)
+            )
 
         # Create calculation task
         calculation_task = CalculationTask(
-            inputs=data.inputs, outputs=data.outputs, response=data.response
+            inputs=data.inputs, outputs=data.outputs,
+            response=data.response
         )
 
         # Check cache first
@@ -311,8 +373,9 @@ class ProcessManager:
         if result.state == "SUCCESS":
             logger.info(f"Job ID {job_id} completed successfully")
 
+        task_result: dict[str, Any] = result.result
             # in case of SUCCESS only, get the results directly (non-blocking)
-            return result.result
+        return task_result
 
     def delete_job(self, job_id: str) -> Dict[str, Any]:
         logger.info(f"Deleting job ID: {job_id}")
@@ -335,7 +398,9 @@ class ProcessManager:
         result.forget()
         return {"status": "dismissed", "message": "Job dismissed"}
 
-    def get_jobs(self, limit: int, offset: int) -> List[Dict[str, Any]]:
+    def get_jobs(
+            self, limit: int, offset: int
+    ) -> Tuple[List[JobStatusInfo], str | None]:
         """
         Retrieves a list of all jobs and their status.
 
@@ -344,7 +409,7 @@ class ProcessManager:
         """
         # Get all job IDs from Redis
         job_keys = self.job_status_cache.keys("job:*")
-        jobs = []
+        jobs: List[JobStatusInfo] = []
 
         for job_key in job_keys[offset : offset + limit]:
             try:
