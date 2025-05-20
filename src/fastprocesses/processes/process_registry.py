@@ -1,7 +1,7 @@
 # src/fastprocesses/processes/process_registry.py
 import json
 from pydoc import locate
-from typing import List
+from typing import List, Type, cast
 
 import redis
 from redis.backoff import ExponentialBackoff
@@ -10,6 +10,7 @@ from redis.retry import Retry
 
 from fastprocesses.core.base_process import BaseProcess
 from fastprocesses.core.config import settings
+from fastprocesses.core.exceptions import ProcessClassNotFoundError
 from fastprocesses.core.logging import logger
 from fastprocesses.core.models import ProcessDescription
 
@@ -25,7 +26,7 @@ class ProcessRegistry:
             retry=self.retry,
             retry_on_error=[ConnectionError, TimeoutError, ConnectionResetError],
             health_check_interval=1,
-        )
+        ) # a synchronous redis client
         self.registry_key = "process_registry"
 
     def register_process(self, process_id: str, process: BaseProcess):
@@ -77,7 +78,9 @@ class ProcessRegistry:
             List[str]: A list of process IDs.
         """
         logger.debug("Retrieving all registered process IDs")
-        return [key.decode("utf-8") for key in self.redis.hkeys(self.registry_key)]
+        keys: list[bytes] = self.redis.hkeys(self.registry_key) # type: ignore
+
+        return [key.decode("utf-8") for key in keys]
 
     def has_process(self, process_id: str) -> bool:
         """
@@ -90,11 +93,12 @@ class ProcessRegistry:
             bool: True if the process is registered, False otherwise.
         """
         logger.debug(f"Checking if process with ID {process_id} is registered")
-        return self.redis.hexists(self.registry_key, process_id)
+
+        return self.redis.hexists(self.registry_key, process_id) # type: ignore
 
     def get_process(self, process_id: str) -> BaseProcess:
         """
-        Dynamically loads and instantiates a process process:
+        Dynamically loads and instantiates a process:
         1. Retrieves process metadata from Redis
         2. Uses Python's module system to locate the class
         3. Instantiates a new process instance
@@ -108,8 +112,13 @@ class ProcessRegistry:
             logger.error(f"Process {process_id} not found!")
             raise ValueError(f"Process {process_id} not found!")
 
-        process_info = json.loads(process_data)
-        process_class = locate(process_info["class_path"])
+        process_info = json.loads(process_data) # type: ignore
+        logger.debug(
+            f"Process data retrieved from Redis:"
+            f"\n{json.dumps(process_info, indent=4)}"
+        )
+
+        process_class = cast(Type[BaseProcess], locate(process_info["class_path"]))
 
         logger.debug(
             f"Class path for Process {process_id}: {process_info['class_path']}"
@@ -117,7 +126,7 @@ class ProcessRegistry:
 
         if not process_class:
             logger.error(f"Process class {process_info['class_path']} not found!")
-            return None
+            raise ProcessClassNotFoundError(process_info['class_path'])
 
         return process_class()
 
