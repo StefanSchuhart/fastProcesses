@@ -116,31 +116,28 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
         logger.debug(f"Updated progress for job {job_id}: {progress}%, {message}")
 
     result = None
-
+    job_status = JobStatusCode.RUNNING
     data = json.loads(serialized_data)
 
     logger.info(f"Executing process {process_id} with data {serialized_data[:80]}")
     job_id = self.request.id  # Get the task/job ID
-    job_status = JobStatusCode.RUNNING
+    
 
-    # First, mark job as running
-    update_job_status(
-        job_id,
-        0,
-        "Starting process",
-        job_status,
-        started=datetime.now(timezone.utc),
-    )
-
+    # First: Get the process
     try:
         service = get_process_registry().get_process(process_id)
     except ValueError as e:
-        # Update job with error status
         job_status = JobStatusCode.FAILED
+        update_job_status(
+            job_id,
+            0,
+            f"Process '{process_id}' not found.",
+            job_status,
+        )
         raise e
 
+    # Second: Execute the process
     try:
-
         if asyncio.iscoroutinefunction(service.execute):
             result = asyncio.run(
                 service.execute(
@@ -204,11 +201,23 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
                 job_status
             )
 
+            # Return from the finally block (this will exit the function)
             return result.model_dump(exclude_none=True)
+        
+        else:
+            job_status = JobStatusCode.FAILED
+            # Update job status for failed jobs that didn't raise exceptions
+            update_job_status(
+                job_id,
+                0,
+                "Process failed",
+                job_status
+            )
+    
     logger.info(
         f"Process {service.__class__.__name__} execution completed. No result returned"
     )
-
+    return None
 
 @celery_app.task(name="check_cache")
 def check_cache(calculation_task: Dict[str, Any]) -> Dict[str, Any]:
