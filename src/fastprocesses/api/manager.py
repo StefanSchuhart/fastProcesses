@@ -299,10 +299,13 @@ class ProcessManager:
         )
 
         # Check cache first
-        cached_result = self._check_cache(calculation_task, process_id)
-        if cached_result:
+        # BUG: if execution mode is SYNC, the reult must be returned directly
+        response = self._check_cache(calculation_task, process_id)
+        if response:
             logger.info(f"Result found in cache for process {process_id}")
-            return cached_result
+
+            # return immediately if cache was hit
+            return response
 
         # Select execution strategy based on mode
         execution_strategies = {
