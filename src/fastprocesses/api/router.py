@@ -103,7 +103,7 @@ def get_router(
             raise HTTPException(status_code=404, detail=exception)
 
     @router.post(
-        "/processes/{process_id}/execution", response_model=ProcessExecResponse
+        "/processes/{process_id}/execution"
     )
     async def execute_process(
         process_id: str,
