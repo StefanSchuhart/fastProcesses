@@ -68,7 +68,7 @@ class Schema(BaseModel):
     maxLength: Optional[int] = None
     pattern: Optional[str] = None
     enum: Optional[List[Any]] = None
-    properties: Optional[Dict[str, Any]] = None
+    properties: Optional[Dict[str, "Schema"]] = None
     required: Optional[List[str]] = None
     items: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = None
     oneOf: Optional[List[Dict[str, Any]]] = None
