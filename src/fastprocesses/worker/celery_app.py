@@ -138,24 +138,18 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
 
     # Second: Execute the process
     try:
-        if asyncio.iscoroutinefunction(service.execute):
-            result = asyncio.run(
-                service.execute(
-                    data,
-                    job_progress_callback=job_progress_callback,
-                )
-            )
-        else:
-            result = service.execute(data)
+        result = service.run_execute(
+            data, job_progress_callback=job_progress_callback
+        )
 
     except SoftTimeLimitExceeded as e:
         logger.warning(f"Task {job_id} hit the soft time limit: {e}")
         # Attempt to resume the process
         try:
-            if asyncio.iscoroutinefunction(service.execute):
-                result = asyncio.run(service.execute(data))
-            else:
-                result = service.execute(data)
+            
+            result = service.run_execute(
+                data, job_progress_callback=job_progress_callback
+            )
 
         except Exception as inner_exception:
             logger.error(

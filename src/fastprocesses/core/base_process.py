@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Dict
+import asyncio
+import inspect
+from typing import Any, Awaitable, ClassVar, Dict
 
 from pydantic import BaseModel
 
@@ -38,11 +40,11 @@ class BaseProcess(ABC):
         return ProcessDescription.model_validate(description_dict)
 
     @abstractmethod
-    async def execute(
+    def execute(
         self,
         exec_body: Dict[str, Any],
         job_progress_callback: JobProgressCallback | None = None,
-    ) -> BaseModel:
+    ) -> BaseModel | Awaitable[BaseModel]:
         """
         Executes the process with given inputs.
 
@@ -56,6 +58,26 @@ class BaseProcess(ABC):
             ValueError: If inputs are invalid
         """
         pass
+
+    def run_execute(
+        self,
+        exec_body: dict,
+        job_progress_callback: JobProgressCallback | None = None,
+    ) -> BaseModel:
+        """
+        Calls the execute method, handling both sync and async implementations.
+        Always returns a BaseModel, never an awaitable.
+        """
+        result = self.execute(exec_body, job_progress_callback=job_progress_callback)
+        if inspect.isawaitable(result):
+            if asyncio.iscoroutine(result):
+                return asyncio.run(result)
+            else:
+                async def _await_result():
+                    return await result
+                return asyncio.run(_await_result())
+        else:
+            return result
 
     def validate_inputs(self, inputs: Dict[str, Any]) -> bool:
         """
