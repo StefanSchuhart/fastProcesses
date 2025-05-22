@@ -93,12 +93,17 @@ class ProcessInput(BaseModel):
         exclude_none = True
         populate_by_name = True
 
+class Metadata(BaseModel):
+    title: str
+    role: str
+    href: str
 
 class ProcessOutput(BaseModel):
     title: str
     description: str
     scheme: Schema = Field(alias="schema")
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: List[Metadata] = []
+    keywords: List[str] = []
 
     model_config = ConfigDict(
         populate_by_name=True,
