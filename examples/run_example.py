@@ -8,6 +8,11 @@ from fastprocesses.api.server import OGCProcessesAPI
 from fastprocesses.core.base_process import BaseProcess
 from fastprocesses.core.models import (
     ProcessDescription,
+    ProcessInput,
+    ProcessJobControlOptions,
+    ProcessOutput,
+    ProcessOutputTransmission,
+    Schema,
 )
 from fastprocesses.core.types import JobProgressCallback
 from fastprocesses.processes.process_registry import register_process
@@ -85,36 +90,32 @@ class SimpleProcess(BaseProcess):
 @register_process("simple_process_2")
 class SimpleProcess_2(BaseProcess):
     # Define process description as a class variable
-    # process_description = ProcessDescription(
-    #     id="simple_process",
-    #     title="Simple Process",
-    #     version="1.0.0",
-    #     description="A simple example process",
-    #     jobControlOptions=[
-    #         ProcessJobControlOptions.SYNC_EXECUTE,
-    #         ProcessJobControlOptions.ASYNC_EXECUTE,
-    #     ],
-    #     outputTransmission=[ProcessOutputTransmission.VALUE],
-    #     inputs={
-    #         "input_text": ProcessInput(
-    #             title="Input Text",
-    #             description="Text to process",
-    #             scheme=Schema(type="dict", minLength=1, maxLength=1000),
-    #         )
-    #     },
-    #     outputs={
-    #         "output_text": ProcessOutput(
-    #             title="Output Text",
-    #             description="Processed text",
-    #             scheme=Schema(type="string"),
-    #         )
-    #     },
-    #     keywords=["text", "processing"],
-    #     metadata={"created": "2024-02-19", "provider": "Example Organization"},
-    # )
-
-    process_description = ProcessDescription.from_yaml(
-            "examples/run_example.yaml"
+    process_description = ProcessDescription(
+        id="simple_process_2",
+        title="Simple Process",
+        version="1.0.0",
+        description="A simple example process",
+        jobControlOptions=[
+            ProcessJobControlOptions.SYNC_EXECUTE,
+            ProcessJobControlOptions.ASYNC_EXECUTE,
+        ],
+        outputTransmission=[ProcessOutputTransmission.VALUE],
+        inputs={
+            "input_text": ProcessInput(
+                title="Input Text",
+                description="Text to process",
+                schema=Schema(type="dict", minLength=1, maxLength=1000),
+            )
+        },
+        outputs={
+            "output_text": ProcessOutput(
+                title="Output Text",
+                description="Processed text",
+                schema=Schema(type="string"),
+            )
+        },
+        keywords=["text", "processing"],
+        metadata={"created": "2024-02-19", "provider": "Example Organization"},
     )
 
     async def execute(
