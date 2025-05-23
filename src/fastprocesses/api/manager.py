@@ -245,7 +245,7 @@ class ProcessManager:
         process_id: str,
         data: ProcessExecRequestBody,
         execution_mode: ExecutionMode,
-    ) -> ProcessExecResponse:
+    ) -> ProcessExecResponse | Any:
         """
         Main process execution orchestration:
         1. Validates process existence and input data
@@ -490,4 +490,18 @@ class ProcessManager:
                 status="successful", jobID=task.id, type="process"
             )
 
+        return None
+
+    def _get_cached_result(self, calculation_task):
+        # Return the actual cached result (process output) if found, else None
+        cache_check = self.celery_app.send_task(
+            "check_cache", args=[calculation_task.model_dump()]
+        )
+        cache_status = cache_check.get(timeout=10)
+        if cache_status["status"] == "HIT":
+            # Retrieve and return the actual result
+            task = self.celery_app.send_task(
+                "find_result_in_cache", args=[calculation_task.celery_key]
+            )
+            return task.get(timeout=10)
         return None
