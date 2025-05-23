@@ -41,5 +41,6 @@
         "venv"
     ],
     "python.analysis.typeCheckingMode": "standard",
+    "makefile.configureOnOpen": false,
    
 }
