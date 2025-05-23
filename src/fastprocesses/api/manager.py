@@ -57,6 +57,15 @@ class AsyncExecutionStrategy(ExecutionStrategy):
     def execute(
         self, process_id: str, calculation_task: CalculationTask
     ) -> ProcessExecResponse:
+
+        # Check cache first
+        response = self.process_manager._check_cache(calculation_task, process_id)
+        if response:
+            logger.info(f"Result found in cache for process {process_id}")
+
+            # return immediately if cache was hit
+            return response
+
         # dump data to json
         serialized_data = json.dumps(
             calculation_task.model_dump(include={"inputs", "outputs", "response"})
@@ -100,6 +109,14 @@ class SyncExecutionStrategy(ExecutionStrategy):
     ) -> ProcessExecResponse | Any:
 
         result: Any = None
+
+        # Check cache first
+        response = self.process_manager._get_cached_result(calculation_task)
+        if response:
+            logger.info(f"Result found in cache for process {process_id}")
+
+            # return results immediately if cache was hit
+            return response
 
         # Submit task to Celery worker queue for background processing
         serialized_data = json.dumps(
@@ -298,15 +315,6 @@ class ProcessManager:
             response=data.response
         )
 
-        # Check cache first
-        # BUG: if execution mode is SYNC, the reult must be returned directly
-        response = self._check_cache(calculation_task, process_id)
-        if response:
-            logger.info(f"Result found in cache for process {process_id}")
-
-            # return immediately if cache was hit
-            return response
-
         # Select execution strategy based on mode
         execution_strategies = {
             ExecutionMode.SYNC: SyncExecutionStrategy(self),
@@ -448,7 +456,9 @@ class ProcessManager:
             "check_cache", args=[calculation_task.model_dump()]
         )
 
+        # wait for the response (blocking)
         cache_status = cache_check.get(timeout=10)
+
         if cache_status["status"] == "HIT":
             task = self.celery_app.send_task(
                 "find_result_in_cache", args=[calculation_task.celery_key]
