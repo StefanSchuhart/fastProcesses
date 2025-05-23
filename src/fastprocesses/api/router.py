@@ -129,14 +129,9 @@ def get_router(
                 response.status_code = status.HTTP_200_OK
                 return result
 
-            # Async: job info, not ready
-            if execution_mode == ExecutionMode.ASYNC:
-                response.status_code = status.HTTP_201_CREATED
-                response.headers["Location"] = f"/jobs/{result.jobID}"
-                return result
-
-            # Sync: job info, not ready (timeout)
-            response.status_code = status.HTTP_202_ACCEPTED
+            # Async or Timeout: return job info
+            response.status_code = status.HTTP_201_CREATED
+            response.headers["Location"] = f"/jobs/{result.jobID}"
             return result
 
         except JobFailedError as e:
