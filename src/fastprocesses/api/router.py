@@ -163,7 +163,7 @@ def get_router(
             )
 
             exception = OGCExceptionResponse(
-                type="http://www.opengis.net/def/exceptions/ogcapi-processes-1/1.0/no-such-process",
+                type="http://www.opengis.net/def/exceptions/ogcapi-processes-1/1.0/invalid-parameter",
                 title="Validation error",
                 status=400,
                 detail=(
@@ -178,7 +178,7 @@ def get_router(
             error_message = str(e)
 
             exception = OGCExceptionResponse(
-                type="http://www.opengis.net/def/exceptions/ogcapi-processes-1/1.0/no-such-process",
+                type="http://www.opengis.net/def/exceptions/ogcapi-processes-1/1.0/invalid-parameter",
                 title="Validation error",
                 status=400,
                 detail=(
