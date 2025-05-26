@@ -104,7 +104,7 @@ class SimpleProcess_2(BaseProcess):
             "input_text": ProcessInput(
                 title="Input Text",
                 description="Text to process",
-                schema=Schema(type="dict", minLength=1, maxLength=1000),
+                schema=Schema(type="string", minLength=1, maxLength=10),
             )
         },
         outputs={
