@@ -102,7 +102,7 @@ class BaseProcess(ABC):
         # First, check all provided inputs
         for input_name, input_value in inputs.items():
             if input_name not in required_inputs:
-                raise KeyError(
+                raise ValueError(
                     f"Provided input '{input_name}' is "
                     "not defined in the process description."
                 )
