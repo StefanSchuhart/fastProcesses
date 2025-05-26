@@ -76,6 +76,7 @@ class Schema(BaseModel):
     contentMediaType: Optional[str] = None
     contentEncoding: Optional[str] = None
     contentSchema: Optional[str] = None
+    default: Optional[Any] = None
 
     class Config:
         exclude_none = True
