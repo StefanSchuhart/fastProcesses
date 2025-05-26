@@ -323,6 +323,7 @@ RESULTS_TEMP_TTL_HOURS=48 # this period determines how long results can be retri
 !IMPORTANT!: Cache hash key is based on original unprocessed inputs always. This ensures consistent caching and cache retrieval which does not depend on arbitrary processed data, which can change when the process is updated or changed!
 
 ### Version Notes
+- **0.13.0**: Validation occurs against schema fragment provided by process description
 - **0.12.0**: results will be retrieved from cache only if inputs and outputs are the same 
 - **0.11.0**: improved error handling
 - **0.10.0**: improved cache handling and added cache settings
