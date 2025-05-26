@@ -1,8 +1,10 @@
-from abc import ABC, abstractmethod
 import asyncio
 import inspect
+from abc import ABC, abstractmethod
 from typing import Any, Awaitable, ClassVar, Dict
 
+from jsonschema import ValidationError as JSONSchemaValidationError
+from jsonschema import validate as jsonschema_validate
 from pydantic import BaseModel
 
 from fastprocesses.core.models import OutputControl, ProcessDescription
@@ -73,8 +75,10 @@ class BaseProcess(ABC):
             if asyncio.iscoroutine(result):
                 return asyncio.run(result)
             else:
+
                 async def _await_result():
                     return await result
+
                 return asyncio.run(_await_result())
         else:
             return result
@@ -92,37 +96,33 @@ class BaseProcess(ABC):
         Raises:
             ValueError: With detailed error message if validation fails
         """
-        description = self.get_description()
+        description: ProcessDescription = self.get_description()
         required_inputs = description.inputs
 
-        # Check for missing required inputs
+        # First, check all provided inputs
+        for input_name, input_value in inputs.items():
+            if input_name not in required_inputs:
+                raise KeyError(
+                    f"Provided input '{input_name}' is "
+                    "not defined in the process description."
+                )
+            input_desc = required_inputs[input_name]
+            try:
+                input_schema = input_desc.scheme.model_dump(exclude_unset=True)
+                jsonschema_validate(instance=input_value, schema=input_schema)
+            except JSONSchemaValidationError as e:
+                raise ValueError(
+                    f"Input '{input_name}' validation failed: {e.message}. "
+                    f"Description: {input_desc.scheme}"
+                )
+
+        # Then, check for missing required inputs
         for input_name, input_desc in required_inputs.items():
             if input_desc.minOccurs > 0 and input_name not in inputs:
                 raise ValueError(
                     f"Missing required input '{input_name}'. "
                     f"Description: {input_desc.description}"
                 )
-
-            # Validate input type if schema is provided
-            if input_name in inputs:
-                expected_type = input_desc.scheme.type
-                if expected_type == "string" and not isinstance(
-                    inputs[input_name], str
-                ):
-                    raise ValueError(
-                        f"Invalid type for input '{input_name}'. "
-                        f"Expected string, got {type(inputs[input_name]).__name__}. "
-                        f"Description: {input_desc.description}"
-                    )
-                elif expected_type == "number" and not isinstance(
-                    inputs[input_name], (int, float)
-                ):
-                    raise ValueError(
-                        f"Invalid type for input '{input_name}'. "
-                        f"Expected number, got {type(inputs[input_name]).__name__}. "
-                        f"Description: {input_desc.description}"
-                    )
-                # Add more type validations as needed
 
         return True
 
@@ -168,7 +168,11 @@ class BaseProcess(ABC):
 
         # Optionally, validate OutputControl objects if needed
         # for out, control in outputs.items():
-        #     if not isinstance(control, dict) or not all(isinstance(v, OutputControl) for v in control.values()):
-        #         raise ValueError(f"Output '{out}' must map to a dict of OutputControl objects.")
+        #     if not isinstance(control, dict) or not all(
+        #         isinstance(v, OutputControl) for v in control.values()
+        #     ):
+        #         raise ValueError(
+        #             f"Output '{out}' must map to a dict of OutputControl objects."
+        #         )
 
         return True
