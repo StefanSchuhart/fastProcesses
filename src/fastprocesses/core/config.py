@@ -102,8 +102,3 @@ class OGCProcessesSettings(BaseSettings):
     class Config:
         env_file = ".env"
         extra = "ignore"
-
-
-settings = OGCProcessesSettings()
-
-settings.print_settings()
