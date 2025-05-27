@@ -149,11 +149,7 @@ class SimpleProcess_2(BaseProcess):
         return output_model
 
 # Create the FastAPI app
-app = OGCProcessesAPI(
-    title="Simple OGC API Process - example api",
-    version="1.0.0",
-    description="A simple API for running processes",
-).get_app()
+app = OGCProcessesAPI().get_app()
 
 if __name__ == "__main__":
     uvicorn.run(
@@ -161,5 +157,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8000,
         log_config=None,
-        log_level=None,
+        log_level="DEBUG",
     )
