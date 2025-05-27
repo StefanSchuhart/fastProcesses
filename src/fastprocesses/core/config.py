@@ -5,54 +5,54 @@ from fastprocesses.core.logging import logger
 
 
 class ResultCacheConnectionConfig(BaseSettings):
-    RESULT_CACHE_HOST: str = "redis"
-    RESULT_CACHE_PORT: int = 6379
-    RESULT_CACHE_DB: str = "1"
-    RESULT_CACHE_PASSWORD: SecretStr = ""
+    FP_RESULT_CACHE_HOST: str = "redis"
+    FP_RESULT_CACHE_PORT: int = 6379
+    FP_RESULT_CACHE_DB: str = "1"
+    FP_RESULT_CACHE_PASSWORD: SecretStr = ""
 
     @computed_field
     @property
     def connection(self) -> RedisDsn:
         return RedisDsn.build(
             scheme="redis",
-            host=self.RESULT_CACHE_HOST,
-            port=self.RESULT_CACHE_PORT,
-            path=self.RESULT_CACHE_DB,
-            password=self.RESULT_CACHE_PASSWORD.get_secret_value(),
+            host=self.FP_RESULT_CACHE_HOST,
+            port=self.FP_RESULT_CACHE_PORT,
+            path=self.FP_RESULT_CACHE_DB,
+            password=self.FP_RESULT_CACHE_PASSWORD.get_secret_value(),
         )
 
 
     @classmethod
-    def get(cls):
+    def get(cls) -> "ResultCacheConnectionConfig":
         return cls()
 
 
 class CeleryConnectionConfig(BaseSettings):
-    CELERY_BROKER_HOST: str = "redis"
-    CELERY_BROKER_PORT: int = 6379
-    CELERY_BROKER_DB: str = "0"
-    CELERY_BROKER_PASSWORD: SecretStr = ""
+    FP_CELERY_BROKER_HOST: str = "redis"
+    FP_CELERY_BROKER_PORT: int = 6379
+    FP_CELERY_BROKER_DB: str = "0"
+    FP_CELERY_BROKER_PASSWORD: SecretStr = ""
 
     @computed_field
     @property
     def connection(self) -> RedisDsn:
         return RedisDsn.build(
             scheme="redis",
-            host=self.CELERY_BROKER_HOST,
-            port=self.CELERY_BROKER_PORT,
-            path=self.CELERY_BROKER_DB,
-            password=self.CELERY_BROKER_PASSWORD.get_secret_value(),
+            host=self.FP_CELERY_BROKER_HOST,
+            port=self.FP_CELERY_BROKER_PORT,
+            path=self.FP_CELERY_BROKER_DB,
+            password=self.FP_CELERY_BROKER_PASSWORD.get_secret_value(),
         )
 
     @classmethod
-    def get(cls):
+    def get(cls) -> "CeleryConnectionConfig":
         return cls()
 
 
-class OGCProcessesSettings(BaseSettings):
-    api_title: str = "Simple Process API"
-    api_version: str = "1.0.0"
-    api_description: str = "A simple API for running processes"
+FPclass OGCProcessesSettings(BaseSettings):
+    FP_API_TITLE: str = "OGC API Processes"
+    FP_API_VERSION: str = "1.0.0"
+    FP_API: str = "A simple API for running OGC API processes"
     celery_broker: CeleryConnectionConfig = Field(
         default_factory=CeleryConnectionConfig.get
     )
@@ -62,21 +62,25 @@ class OGCProcessesSettings(BaseSettings):
     results_cache: ResultCacheConnectionConfig = Field(
         default_factory=ResultCacheConnectionConfig.get
     )
-    CORS_ALLOWED_ORIGINS: list[AnyUrl | str] = ["*"]
-    CELERY_RESULTS_TTL_DAYS: int = 365
-    CELERY_TASK_TLIMIT_HARD: int = 900 # seconds
-    CELERY_TASK_TLIMIT_SOFT: int = 600 # seconds
-    RESULTS_TEMP_TTL_HOURS: int = Field(
+    FP_CORS_ALLOWED_ORIGINS: list[AnyUrl | str] = ["*"]
+    FP_CELERY_RESULTS_TTL_DAYS: int = 365
+    FP_CELERY_TASK_TLIMIT_HARD: int = 900 # seconds
+    FP_CELERY_TASK_TLIMIT_SOFT: int = 600 # seconds
+    FP_RESULTS_TEMP_TTL_HOURS: int = Field(
         default=48,  # 2 days
         description="Time to live for cached results in days",
     )
-    JOB_STATUS_TTL_DAYS: int = Field(
+    FP_JOB_STATUS_TTL_DAYS: int = Field(
         default=365,  # 7 days
         description="Time to live for job status in days",
     )
-    SYNC_EXECUTION_TIMEOUT_SECONDS: int = Field(
+    FP_SYNC_EXECUTION_TIMEOUT_SECONDS: int = Field(
         default=10,
         description="Timeout in seconds for synchronous execution waiting for result."
+    )
+    FP_LOG_LEVEL: str = Field(
+        default="INFO",
+        description="Logging level for the application. Options: DEBUG, INFO, WARNING, ERROR, CRITICAL",
     )
 
     @field_validator("CORS_ALLOWED_ORIGINS", mode="before")

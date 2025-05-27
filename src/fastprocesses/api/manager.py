@@ -152,13 +152,13 @@ class SyncExecutionStrategy(ExecutionStrategy):
         async_result = AsyncResult(task.id)
         try:
             result = async_result.get(
-                timeout=settings.SYNC_EXECUTION_TIMEOUT_SECONDS
+                timeout=settings.FP_SYNC_EXECUTION_TIMEOUT_SECONDS
             )
 
         except celery.exceptions.TimeoutError:
             logger.error(
                 f"Synchronous execution for job {task.id} timed out after "
-                f"{settings.SYNC_EXECUTION_TIMEOUT_SECONDS} seconds."
+                f"{settings.FP_SYNC_EXECUTION_TIMEOUT_SECONDS} seconds."
             )
             # Return ProcessExecResponse with status 'running', no result yet
             response = ProcessExecResponse(
