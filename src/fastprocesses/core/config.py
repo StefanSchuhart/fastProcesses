@@ -8,7 +8,7 @@ class ResultCacheConnectionConfig(BaseSettings):
     FP_RESULT_CACHE_HOST: str = "redis"
     FP_RESULT_CACHE_PORT: int = 6379
     FP_RESULT_CACHE_DB: str = "1"
-    FP_RESULT_CACHE_PASSWORD: SecretStr = ""
+    FP_RESULT_CACHE_PASSWORD: SecretStr = SecretStr("")
 
     @computed_field
     @property
@@ -31,7 +31,7 @@ class CeleryConnectionConfig(BaseSettings):
     FP_CELERY_BROKER_HOST: str = "redis"
     FP_CELERY_BROKER_PORT: int = 6379
     FP_CELERY_BROKER_DB: str = "0"
-    FP_CELERY_BROKER_PASSWORD: SecretStr = ""
+    FP_CELERY_BROKER_PASSWORD: SecretStr = SecretStr("")
 
     @computed_field
     @property
@@ -83,7 +83,7 @@ class OGCProcessesSettings(BaseSettings):
         description="Logging level for the application. Options: DEBUG, INFO, WARNING, ERROR, CRITICAL",
     )
 
-    @field_validator("CORS_ALLOWED_ORIGINS", mode="before")
+    @field_validator("FP_CORS_ALLOWED_ORIGINS", mode="before")
     def parse_cors_origins(cls, v) -> list[str]:
         if isinstance(v, str):
             # Handle comma-separated string
@@ -92,7 +92,7 @@ class OGCProcessesSettings(BaseSettings):
             return [str(origin).strip() for origin in v if str(origin).strip()]
 
         raise ValueError(
-            "CORS_ALLOWED_ORIGINS must be a comma-separated string or list"
+            "FP_CORS_ALLOWED_ORIGINS must be a comma-separated string or list"
         )
 
     def print_settings(self):
