@@ -2,20 +2,25 @@ import json
 from typing import Any
 
 import redis
+from pydantic import RedisDsn
 from fastapi.encoders import jsonable_encoder
 from redis.backoff import ExponentialBackoff
 from redis.exceptions import ConnectionError, TimeoutError
 from redis.retry import Retry
 
-from fastprocesses.core.config import settings
 from fastprocesses.core.logging import logger
 
 
 class TempResultCache:
-    def __init__(self, key_prefix: str, ttl_hours: int):
+    def __init__(
+            self,
+            key_prefix: str,
+            ttl_hours: int,
+            connection: RedisDsn | None = None
+    ):
         self._retry = Retry(ExponentialBackoff(cap=10, base=1), -1)
         self._redis: redis.Redis = redis.Redis.from_url(
-            str(settings.results_cache.connection),
+            str(connection),
             retry=self._retry,
             retry_on_error=[ConnectionError, TimeoutError, ConnectionResetError],
             health_check_interval=1,
