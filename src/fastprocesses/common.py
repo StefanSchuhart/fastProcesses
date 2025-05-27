@@ -1,11 +1,18 @@
 import json
+import logging
+import sys
 
 from celery import Celery
 from fastapi.encoders import jsonable_encoder
 from kombu.serialization import register
 
+from fastprocesses.core.logging import InterceptHandler, logger
 from fastprocesses.core.cache import TempResultCache
-from fastprocesses.core.config import settings
+from fastprocesses.core.config import OGCProcessesSettings
+
+settings = OGCProcessesSettings()
+
+settings.print_settings()
 
 
 def custom_json_serializer(obj):
@@ -59,9 +66,25 @@ celery_app.conf.update(
 temp_result_cache = TempResultCache(
     key_prefix="process_results",
     ttl_hours=settings.FP_RESULTS_TEMP_TTL_HOURS,
+    connection=settings.results_cache.connection
 )
 
 job_status_cache = TempResultCache(
     key_prefix="job_status",
     ttl_hours=settings.FP_JOB_STATUS_TTL_DAYS,
+    connection=settings.results_cache.connection
 )
+
+# Info logs to stdout
+
+logger.add(
+    sys.stdout, 
+    level=settings.FP_LOG_LEVEL, 
+    format="{time:YYYY-MM-DD at HH:mm:ss} | {level} | {message}",
+    backtrace=True,
+    diagnose=True,
+)
+
+
+# Intercept standard logging
+logging.basicConfig(handlers=[InterceptHandler()], level=settings.FP_LOG_LEVEL)
