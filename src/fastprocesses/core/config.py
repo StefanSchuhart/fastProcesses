@@ -96,7 +96,7 @@ class OGCProcessesSettings(BaseSettings):
         )
 
     def print_settings(self):
-        logger.info("Current %s settings:", self.__class__.__name__)
+        logger.info("Current settings:")
         logger.info(vars(self))
 
     class Config:
