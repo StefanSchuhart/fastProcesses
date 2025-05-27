@@ -3,11 +3,15 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
-from celery.result import AsyncResult
-from fastprocesses.core.config import settings
 import celery.exceptions
+from celery.result import AsyncResult
 
-from fastprocesses.common import celery_app, job_status_cache, temp_result_cache
+from fastprocesses.common import (
+    celery_app,
+    job_status_cache,
+    settings,
+    temp_result_cache,
+)
 from fastprocesses.core.exceptions import (
     InputValidationError,
     JobFailedError,
@@ -57,7 +61,6 @@ class AsyncExecutionStrategy(ExecutionStrategy):
     def execute(
         self, process_id: str, calculation_task: CalculationTask
     ) -> ProcessExecResponse:
-
         # Check cache first
         response = self.process_manager._check_cache(calculation_task, process_id)
         if response:
@@ -107,7 +110,6 @@ class SyncExecutionStrategy(ExecutionStrategy):
     def execute(
         self, process_id: str, calculation_task: CalculationTask
     ) -> ProcessExecResponse | Any:
-
         result: Any = None
 
         # Check cache first
@@ -162,9 +164,7 @@ class SyncExecutionStrategy(ExecutionStrategy):
             )
             # Return ProcessExecResponse with status 'running', no result yet
             response = ProcessExecResponse(
-                status="running",
-                jobID=task.id,
-                type="process"
+                status="running", jobID=task.id, type="process"
             )
             return response
         except Exception as e:
@@ -203,6 +203,7 @@ class SyncExecutionStrategy(ExecutionStrategy):
         self.process_manager.job_status_cache.put(f"job:{task.id}", job_status)
 
         return result
+
 
 class ProcessManager:
     """Manages processes, including execution, status checking, and job management."""
@@ -295,24 +296,17 @@ class ProcessManager:
             service.validate_inputs(data.inputs)
         except ValueError as e:
             logger.error(f"Input validation failed for process {process_id}: {str(e)}")
-            raise InputValidationError(
-                process_id,
-                repr(e)
-            )
+            raise InputValidationError(process_id, repr(e))
 
         try:
             service.validate_outputs(data.outputs)
         except ValueError as e:
             logger.error(f"Output validation failed for process {process_id}: {str(e)}")
-            raise OutputValidationError(
-                process_id,
-                repr(e)
-            )
+            raise OutputValidationError(process_id, repr(e))
 
         # Create calculation task
         calculation_task = CalculationTask(
-            inputs=data.inputs, outputs=data.outputs,
-            response=data.response
+            inputs=data.inputs, outputs=data.outputs, response=data.response
         )
 
         # Select execution strategy based on mode
@@ -343,11 +337,10 @@ class ProcessManager:
         # Retrieve the job from Redis
         job_info_raw = self.job_status_cache.get(f"job:{job_id}")
 
-
         if not job_info_raw:
             logger.error(f"Job {job_id} not found in cache")
             raise JobNotFoundError(f"Job {job_id} not found")
-        
+
         job_info = JobStatusInfo.model_validate(job_info_raw)
 
         return job_info
@@ -385,7 +378,7 @@ class ProcessManager:
             logger.info(f"Job ID {job_id} completed successfully")
 
         task_result: dict[str, Any] = result.result
-            # in case of SUCCESS only, get the results directly (non-blocking)
+        # in case of SUCCESS only, get the results directly (non-blocking)
         return task_result
 
     def delete_job(self, job_id: str) -> Dict[str, Any]:
@@ -410,7 +403,7 @@ class ProcessManager:
         return {"status": "dismissed", "message": "Job dismissed"}
 
     def get_jobs(
-            self, limit: int, offset: int
+        self, limit: int, offset: int
     ) -> Tuple[List[JobStatusInfo], str | None]:
         """
         Retrieves a list of all jobs and their status.
