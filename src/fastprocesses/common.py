@@ -49,19 +49,19 @@ celery_app.conf.update(
     broker_connection_retry=True,
     broker_connection_retry_on_startup=True,
     # set limits for long-running tasks
-    task_time_limit=settings.CELERY_TASK_TLIMIT_HARD,  # Hard limit in seconds
-    task_soft_time_limit=settings.CELERY_TASK_TLIMIT_SOFT,  # Soft limit in seconds
-    result_expires=settings.CELERY_RESULTS_TTL_DAYS * 86000,  # Time in seconds before results expire
+    task_time_limit=settings.FP_CELERY_TASK_TLIMIT_HARD,  # Hard limit in seconds
+    task_soft_time_limit=settings.FP_CELERY_TASK_TLIMIT_SOFT,  # Soft limit in seconds
+    result_expires=settings.FP_CELERY_RESULTS_TTL_DAYS * 86000,  # Time in seconds before results expire
     worker_send_task_events=True,  # Enable events to track task progress
     # task_acks_late=True,  # Acknowledge the task only after it has been executed)
 )
 
 temp_result_cache = TempResultCache(
     key_prefix="process_results",
-    ttl_hours=settings.RESULTS_TEMP_TTL_HOURS,
+    ttl_hours=settings.FP_RESULTS_TEMP_TTL_HOURS,
 )
 
 job_status_cache = TempResultCache(
     key_prefix="job_status",
-    ttl_hours=settings.JOB_STATUS_TTL_DAYS,
+    ttl_hours=settings.FP_JOB_STATUS_TTL_DAYS,
 )
