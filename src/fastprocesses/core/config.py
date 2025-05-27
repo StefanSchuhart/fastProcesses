@@ -49,10 +49,10 @@ class CeleryConnectionConfig(BaseSettings):
         return cls()
 
 
-FPclass OGCProcessesSettings(BaseSettings):
+class OGCProcessesSettings(BaseSettings):
     FP_API_TITLE: str = "OGC API Processes"
     FP_API_VERSION: str = "1.0.0"
-    FP_API: str = "A simple API for running OGC API processes"
+    FP_API_DESCRIPTION: str = "A simple API for running OGC API processes"
     celery_broker: CeleryConnectionConfig = Field(
         default_factory=CeleryConnectionConfig.get
     )
