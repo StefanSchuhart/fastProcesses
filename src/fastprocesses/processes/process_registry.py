@@ -9,7 +9,7 @@ from redis.exceptions import ConnectionError, TimeoutError
 from redis.retry import Retry
 
 from fastprocesses.core.base_process import BaseProcess
-from fastprocesses.core.config import settings
+from fastprocesses.common import settings
 from fastprocesses.core.exceptions import ProcessClassNotFoundError
 from fastprocesses.core.logging import logger
 from fastprocesses.core.models import ProcessDescription
