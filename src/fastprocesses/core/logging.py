@@ -3,23 +3,6 @@ import sys
 
 from loguru import logger
 
-# Remove existing handlers
-for handler in logging.root.handlers[:]:
-    logging.root.removeHandler(handler)
-
-loggers = (
-    "uvicorn",
-    "uvicorn.access",
-    "uvicorn.error",
-    "fastapi",
-    "asyncio",
-    "starlette",
-)
-
-for logger_name in loggers:
-    logging_logger = logging.getLogger(logger_name)
-    logging_logger.handlers = []
-    logging_logger.propagate = True
 
 class ErrorLogFilter:
     def __init__(self):
@@ -48,6 +31,25 @@ class InterceptHandler(logging.Handler):
             level, record.getMessage()
         )
 
+
+# Remove existing handlers
+for handler in logging.root.handlers[:]:
+    logging.root.removeHandler(handler)
+
+loggers = (
+    "uvicorn",
+    "uvicorn.access",
+    "uvicorn.error",
+    "fastapi",
+    "asyncio",
+    "starlette",
+)
+
+for logger_name in loggers:
+    logging_logger = logging.getLogger(logger_name)
+    logging_logger.handlers = []
+    logging_logger.propagate = True
+
 # Configure logger
 logger.remove()  # Remove default logger
 
@@ -71,20 +73,6 @@ logger.add(
     format="{time:YYYY-MM-DD at HH:mm:ss} | {level} | {message}",
     filter=error_log_filter
 )
-
-# Info logs to stdout
-# TODO read loglevel from settings!
-logger.add(
-    sys.stdout, 
-    level="DEBUG", 
-    format="{time:YYYY-MM-DD at HH:mm:ss} | {level} | {message}",
-    backtrace=True,
-    diagnose=True,
-)
-
-
-# Intercept standard logging
-logging.basicConfig(handlers=[InterceptHandler()], level=logging.INFO)
 
 # Example usage
 logger.info("Logging setup complete.")
