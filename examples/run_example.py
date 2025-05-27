@@ -22,7 +22,7 @@ class TextModel(BaseModel):
     input_text: str
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "input_text": "Hello, World!",
                 "output_text": "HELLO, WORLD!",
@@ -34,7 +34,7 @@ class TextModelOut(BaseModel):
     lower: str | None = None
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "output_text": "HELLO, WORLD!",
             }
