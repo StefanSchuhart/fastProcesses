@@ -6,12 +6,25 @@ from fastapi.responses import JSONResponse
 from fastprocesses.api.manager import ProcessManager
 from fastprocesses.api.router import get_router
 from fastprocesses.core.models import OGCExceptionResponse
+from fastprocesses.common import settings
 
 
 class OGCProcessesAPI:
-    def __init__(self, title: str, version: str, description: str):
+    def __init__(
+            self,
+            contact: dict | None = None, license: dict | None = None,
+            terms_of_service: str | None = None
+            ):
+
         self.process_manager = ProcessManager()
-        self.app = FastAPI(title=title, version=version, description=description)
+        self.app = FastAPI(
+            title=settings.FP_API_TITLE,
+            version=settings.FP_API_VERSION,
+            description=settings.FP_API_DESCRIPTION,
+            contact=contact,
+            license_info=license,
+            terms_of_service=terms_of_service
+        )
         self.app.include_router(
             get_router(
                 self.process_manager,
