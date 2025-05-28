@@ -1,6 +1,6 @@
 from typing import Any
+
 from fastapi import APIRouter, Header, HTTPException, Query, Response, status
-from fastapi.responses import JSONResponse
 
 from fastprocesses.api.manager import ProcessManager
 from fastprocesses.core.exceptions import (
@@ -32,20 +32,6 @@ def get_router(
     process_manager: ProcessManager, title: str, description: str
 ) -> APIRouter:
     router = APIRouter()
-
-    @router.get("/")
-    async def landing_page() -> Landing:
-        logger.debug("Landing page accessed")
-        return Landing(
-            title=title,
-            description=description,
-            links=[
-                Link(href="/", rel="self", type="application/json"),
-                Link(href="/conformance", rel="conformance", type="application/json"),
-                Link(href="/processes", rel="processes", type="application/json"),
-                Link(href="/jobs", rel="jobs", type="application/json"),
-            ],
-        )
 
     @router.get("/conformance")
     async def conformance() -> Conformance:
@@ -102,9 +88,7 @@ def get_router(
             )
             raise HTTPException(status_code=404, detail=exception)
 
-    @router.post(
-        "/processes/{process_id}/execution"
-    )
+    @router.post("/processes/{process_id}/execution")
     async def execute_process(
         process_id: str,
         request: ProcessExecRequestBody,
@@ -167,8 +151,7 @@ def get_router(
                 title="Validation error",
                 status=400,
                 detail=(
-                    f"Process {process_id}: Input validation failed. "
-                    f"{error_message}"
+                    f"Process {process_id}: Input validation failed. {error_message}"
                 ),
                 instance=f"/processes/{process_id}",
             )
@@ -182,8 +165,7 @@ def get_router(
                 title="Validation error",
                 status=400,
                 detail=(
-                    f"Process {process_id}: Output validation failed. "
-                    f"{error_message}"
+                    f"Process {process_id}: Output validation failed. {error_message}"
                 ),
                 instance=f"/processes/{process_id}",
             )

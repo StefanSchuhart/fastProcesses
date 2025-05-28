@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+    <html lang='en'>
+    <head>
+        <meta charset='utf-8'>
+        <title>{{ title  }} - API Landing Page</title>
+        <link rel='stylesheet' href={{ css }}>
+    </head>
+    <body>
+        <div class='container'>
+            <h1>{{ title }}</h1>
+            <div class='meta'>Version {{ version }}</div>
+            <div class='desc'>{{ description }}</div>
+            <h2>API Endpoints</h2>
+            <table>
+                <tr><th>Path</th><th>Methods</th></tr>
+                {{ table_rows }}
+            </table>
+            <div class='footer'>
+                {{ contact_line }}
+                {{ license_line }}
+                {{ terms_of_service }}
+                <hr style="width:25%;text-align:left;margin-left:0">
+                <small><br>powered by {{ powered_by }}</small>
+            </div>
+        </div>
+    </body>
+    </html>
