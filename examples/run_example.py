@@ -149,7 +149,18 @@ class SimpleProcess_2(BaseProcess):
         return output_model
 
 # Create the FastAPI app
-app = OGCProcessesAPI().get_app()
+app = OGCProcessesAPI(
+    contact={
+        "name": "LGV Hamburg",
+        "url": "https://example.com",
+        "email": "support@support.com",
+    },
+    license={
+        "name": "Apache 2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0",
+    },
+    terms_of_service="https://example.com/terms",
+).get_app()
 
 if __name__ == "__main__":
     uvicorn.run(

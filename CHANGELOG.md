@@ -17,7 +17,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - further improve storing jobs and job results in cache using a dedicated object model (eventually using redis_om)
 - implement callback mechanism according to [OGC API Processes requirment class](https://docs.ogc.org/is/18-062r2/18-062r2.html#toc52)
 
-## [0.14.0] - dev
+## [0.15.0] - dev
+
+## [0.14.0] - 2025-05-27
+
+### Added
+- allow to add metadata to process
+- simple html landing page (with content negotiation)
+
+### Changed
+- settings have now a common "FP_" prefix to distinguish from other apps settings
+- internal settings and logging initialization is more concise
+
 
 ## [0.13.0] - 2025-05-26
 
