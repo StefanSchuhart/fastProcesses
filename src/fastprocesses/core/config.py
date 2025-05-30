@@ -26,6 +26,10 @@ class ResultCacheConnectionConfig(BaseSettings):
     def get(cls) -> "ResultCacheConnectionConfig":
         return cls()
 
+    class Config:
+        env_file = ".env"
+        extra = "ignore"
+
 
 class CeleryConnectionConfig(BaseSettings):
     FP_CELERY_BROKER_HOST: str = "redis"
@@ -47,6 +51,10 @@ class CeleryConnectionConfig(BaseSettings):
     @classmethod
     def get(cls) -> "CeleryConnectionConfig":
         return cls()
+
+    class Config:
+        env_file = ".env"
+        extra = "ignore"
 
 
 class OGCProcessesSettings(BaseSettings):
