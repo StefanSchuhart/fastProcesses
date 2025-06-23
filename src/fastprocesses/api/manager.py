@@ -432,6 +432,8 @@ class ProcessManager:
 
         return jobs, next_link
 
+    # direct chache checking is needed for environments using keda, because worker cold starts will
+    # be too slow
     def _check_cache(
         self, calculation_task: CalculationTask, process_id: str
     ) -> ProcessExecResponse | None:
