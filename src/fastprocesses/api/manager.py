@@ -12,6 +12,7 @@ from fastprocesses.common import (
     settings,
     temp_result_cache,
 )
+from fastprocesses.core import config
 from fastprocesses.core.exceptions import (
     InputValidationError,
     JobFailedError,
@@ -76,7 +77,7 @@ class AsyncExecutionStrategy(ExecutionStrategy):
 
         # Submit task to Celery worker queue for background processing
         task = self.process_manager.celery_app.send_task(
-            "execute_process", args=[process_id, serialized_data]
+            "fastprocesses.execute_process", args=[process_id, serialized_data]
         )
 
         # Initialize job metadata in cache with status 'accepted'
@@ -125,7 +126,7 @@ class SyncExecutionStrategy(ExecutionStrategy):
             calculation_task.model_dump(include={"inputs", "outputs", "response"})
         )
         task = self.process_manager.celery_app.send_task(
-            "execute_process", args=[process_id, serialized_data]
+            "fastprocesses.execute_process", args=[process_id, serialized_data]
         )
 
         # Initialize job metadata in cache with status 'running'
@@ -447,16 +448,13 @@ class ProcessManager:
         Returns:
             Cached response if found, None otherwise
         """
-        cache_check = self.celery_app.send_task(
-            "check_cache", args=[calculation_task.model_dump()]
-        )
+        cached_result = temp_result_cache.get(key=calculation_task.celery_key)
 
-        # wait for the response (blocking)
-        cache_status = cache_check.get(timeout=10)
+        if cached_result:
+            logger.info(f"Cache hit for key {calculation_task.celery_key}")
 
-        if cache_status["status"] == "HIT":
             task = self.celery_app.send_task(
-                "find_result_in_cache", args=[calculation_task.celery_key]
+                "fastprocesses.find_result_in_cache", args=[calculation_task.celery_key]
             )
 
             job_info = JobStatusInfo.model_validate(
@@ -497,16 +495,24 @@ class ProcessManager:
 
         return None
 
-    def _get_cached_result(self, calculation_task):
-        # Return the actual cached result (process output) if found, else None
-        cache_check = self.celery_app.send_task(
-            "check_cache", args=[calculation_task.model_dump()]
-        )
-        cache_status = cache_check.get(timeout=10)
-        if cache_status["status"] == "HIT":
+    def _get_cached_result(self, calculation_task: CalculationTask) -> Any | None:
+        """
+        Checks if the result for the given calculation task is already cached.
+        If found, retrieves the result from the cache.
+        Args:
+            calculation_task (CalculationTask): The task containing input parameters.
+        Returns:
+            ProcessExecResponse | None: The cached result if found, otherwise None.
+        """
+        # first, check for existence of the cached result
+        cached_result = temp_result_cache.get(key=calculation_task.celery_key)
+
+        if cached_result:
             # Retrieve and return the actual result
             task = self.celery_app.send_task(
-                "find_result_in_cache", args=[calculation_task.celery_key]
+                "fastprocesses.find_result_in_cache", args=[calculation_task.celery_key]
             )
-            return task.get(timeout=10)
+            # for synchronous execution, we can block here, but must set a graceful timeout
+            return task.get(timeout=settings.FP_SYNC_EXECUTION_TIMEOUT_SECONDS)
+
         return None
