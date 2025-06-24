@@ -65,6 +65,9 @@
             "justMyCode": true,
             "autoReload": {
                 "enable": true
+            },
+            "env": {
+                "FLOWER_UNAUTHENTICATED_API": "true"
             }
         }
     ]
