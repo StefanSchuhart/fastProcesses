@@ -42,5 +42,6 @@
     ],
     "python.analysis.typeCheckingMode": "standard",
     "makefile.configureOnOpen": false,
+    "python.analysis.autoImportCompletions": true,
    
 }
