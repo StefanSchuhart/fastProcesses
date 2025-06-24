@@ -89,7 +89,7 @@ def update_job_status(
     logger.debug(f"Updated progress for job {job_id}: {progress}%, {message}")
 
 
-@celery_app.task(bind=True, name="execute_process", base=CacheResultTask)
+@celery_app.task(bind=True, name="fastprocesses.execute_process", base=CacheResultTask)
 def execute_process(self, process_id: str, serialized_data: str | bytes):
     def job_progress_callback(progress: int, message: str | None = None):
         """
@@ -212,7 +212,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
     )
     return None
 
-@celery_app.task(name="check_cache")
+@celery_app.task(name="fastprocesses.check_cache")
 def check_cache(calculation_task: Dict[str, Any]) -> Dict[str, Any]:
     """
     Check if results exist in cache and return status
@@ -228,7 +228,7 @@ def check_cache(calculation_task: Dict[str, Any]) -> Dict[str, Any]:
     return {"status": "MISS"}
 
 
-@celery_app.task(name="find_result_in_cache")
+@celery_app.task(name="fastprocesses.find_result_in_cache")
 def find_result_in_cache(celery_key: str) -> dict | None:
     """
     Retrieve result from cache

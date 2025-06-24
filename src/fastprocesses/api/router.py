@@ -64,11 +64,10 @@ def get_router(
             links=links,
         )
 
-        ProcessList.validate_python([desc.model_dump() for desc in processes])
-
     @router.get(
         "/processes/{process_id}",
         response_model_exclude_none=True,
+        response_model_exclude_unset=True,
         response_model=ProcessDescription,
     )
     async def describe_process(
