@@ -143,6 +143,12 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
     # Second: deep validation of inputs
     try:
         logger.info(f"Worker validating inputs for process {process_id}")
+        update_job_status(
+            job_id,
+            0,
+            "Validating inputs. This may take a while for complex inputs.",
+            job_status,
+        )
         service.validate_inputs(data["inputs"])
     except ValueError as e:
         logger.error(f"Input validation failed for process {process_id}: {str(e)}")
