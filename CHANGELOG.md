@@ -6,66 +6,86 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Development version]
 
-### Added
+#### Added
 
-### Changed
+#### Changed
 
-### Fixed
+#### Fixed
 
 ### Planned
 - improve/implement retry mechanisms when calling celery tasks and redis cache
 - further improve storing jobs and job results in cache using a dedicated object model (eventually using redis_om)
 - implement callback mechanism according to [OGC API Processes requirment class](https://docs.ogc.org/is/18-062r2/18-062r2.html#toc52)
 
-## [0.15.0] - dev
+## [0.15] - dev
 
-## [0.14.0] - 2025-05-27
+## [0.14]
+
+### [0.14.3] - 2025-06-25
+
+#### Changed
+- improved job error message in case of validation errors
+
+### [0.14.2] - 2025-06-24
+
+#### Changed
+- namespaced celery tasks
+- directly checking cache for results instead of using a celery task
+
+### [0.14.1] - 2025-05-28
 
 ### Added
+- added some link to landing page
+
+### [0.14.0] - 2025-05-27
+
+#### Added
 - allow to add metadata to process
 - simple html landing page (with content negotiation)
 
-### Changed
+#### Changed
 - settings have now a common "FP_" prefix to distinguish from other apps settings
 - internal settings and logging initialization is more concise
 
+## [0.13]
+### [0.13.0] - 2025-05-26
 
-## [0.13.0] - 2025-05-26
-
-### Fixed
+#### Fixed
 - various typing errors
 - a problem where a job status stays on running, even if it failed
 
-### Changed
+#### Changed
 - updated celery and redis packages
 
-### Added
+#### Added
 - integrated input validation uses schema fragment from process description
 
+## [0.12]
+### [0.12.0] - 2025-05-15
 
-## [0.12.0] - 2025-05-15
-
-### Fixed
+#### Fixed
 - when retrieving results from cache user provided inputs *and outputs* will be factored in, not only inputs  
 - make sure outputs not specified by the user are excluded from /jobs/{jobId}/results page
 
-## [0.11.0] - 2025-05-14
+## [0.11]
+### [0.11.0] - 2025-05-14
 
-### Added
+#### Added
 - log message when the cache is missed
 - custom Exceptions for various error events
 
-### Changed
+#### Changed
 - greatly improved error handling (distinguish between user input error, process execution errors and library errors) 
 - give process users and library users meaningful error messages in the correct place (job message/result, logs)
 
 
-### Fixed
+#### Fixed
 - JobStatusCode types
 
-## [0.10.0] - 2025-04-25
+## [0.10]
+### [0.10.0] - 2025-04-25
 
-### Changed
+#### Changed
 - improved cache handling and distinguish between caching jobs and results (TTL)
 - added various new settings to customize the caches
 - made progress_callback more descriptive,
@@ -73,14 +93,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - and renamed it to **job_progress_callback**
 - replaced celerys AsyncResult for job status retrieval by getting the job info stored in redis
 
-### Added
+#### Added
 
-### Fixed
+#### Fixed
 fix: store the error message when a job fails in job details
 fix: result_expires must be seconds
 fix: return None, if no process class was found in path (dont try to do something like  `None()`
 
-## [0.9.0] - 2025-04-08
+## [0.9]
+### [0.9.0] - 2025-04-08
 
 ### new features
 - read process description from yaml
