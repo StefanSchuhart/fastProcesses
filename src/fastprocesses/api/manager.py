@@ -293,8 +293,9 @@ class ProcessManager:
 
         # Get service and validate inputs
         service = self.process_registry.get_process(process_id)
+
         try:
-            service.validate_inputs(data.inputs)
+            service.quick_validate_inputs(data.inputs)
         except ValueError as e:
             logger.error(f"Input validation failed for process {process_id}: {str(e)}")
             raise InputValidationError(process_id, repr(e))
