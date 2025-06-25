@@ -83,6 +83,23 @@ class BaseProcess(ABC):
         else:
             return result
 
+    def quick_validate_inputs(self, inputs: Dict[str, Any]) -> bool:
+        """
+        Quickly checks that all required input fields are present.
+        Does NOT perform deep schema validation.
+        """
+        description: ProcessDescription = self.get_description()
+        required_inputs = description.inputs
+
+        # Check for missing required inputs only
+        for input_name, input_desc in required_inputs.items():
+            if input_desc.minOccurs > 0 and input_name not in inputs:
+                raise ValueError(
+                    f"Missing required input '{input_name}'. "
+                    f"Description: {input_desc.description}"
+                )
+        return True
+
     def validate_inputs(self, inputs: Dict[str, Any]) -> bool:
         """
         Validates the input data against the process description.
@@ -113,7 +130,7 @@ class BaseProcess(ABC):
             except JSONSchemaValidationError as e:
                 raise ValueError(
                     f"Input '{input_name}' validation failed: {e.message}. "
-                    f"Description: {input_desc.scheme}"
+                    f"Description: {input_desc.scheme.model_dump(exclude_unset=True)}"
                 )
 
         # Then, check for missing required inputs
