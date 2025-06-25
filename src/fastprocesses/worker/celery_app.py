@@ -10,6 +10,7 @@ from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ValidationError
 
 from fastprocesses.common import celery_app, job_status_cache, temp_result_cache
+from fastprocesses.core.exceptions import InputValidationError
 from fastprocesses.core.logging import logger
 from fastprocesses.core.models import (
     CalculationTask,
@@ -119,7 +120,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
     result = None
     job_status = JobStatusCode.RUNNING
     job_message = ""
-    data = json.loads(serialized_data)
+    data: dict = json.loads(serialized_data)
 
     logger.info(f"Executing process {process_id} with data {serialized_data[:80]}")
     job_id = self.request.id  # Get the task/job ID
@@ -127,6 +128,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
 
     # First: Get the process
     try:
+        logger.info(f"Worker retrieving process {process_id} from registry")
         service = get_process_registry().get_process(process_id)
     except ValueError as e:
         job_status = JobStatusCode.FAILED
@@ -138,8 +140,24 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
         )
         raise e
 
-    # Second: Execute the process
+    # Second: deep validation of inputs
     try:
+        logger.info(f"Worker validating inputs for process {process_id}")
+        service.validate_inputs(data["inputs"])
+    except ValueError as e:
+        logger.error(f"Input validation failed for process {process_id}: {str(e)}")
+        job_status = JobStatusCode.FAILED
+        update_job_status(
+            job_id,
+            0,
+            str(e),
+            job_status,
+        )
+        raise InputValidationError(process_id, repr(e))
+
+    # Third: Execute the process
+    try:
+        logger.info(f"Worker executing process {process_id} with data {data}")
         job_status = JobStatusCode.RUNNING
         update_job_status(
             job_id,
