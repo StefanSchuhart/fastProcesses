@@ -60,7 +60,8 @@ celery_app.conf.update(
     task_soft_time_limit=settings.FP_CELERY_TASK_TLIMIT_SOFT,  # Soft limit in seconds
     result_expires=settings.FP_CELERY_RESULTS_TTL_DAYS * 86000,  # Time in seconds before results expire
     worker_send_task_events=True,  # Enable events to track task progress
-    # task_acks_late=True,  # Acknowledge the task only after it has been executed)
+    worker_prefetch_multiplier = 1, # one worker, one task: dont hold tasks in memory (needed for kedas and queue scaling based scaling)
+    task_acks_late = True # Acknowledge the task only after it has been executed and finished
 )
 
 temp_result_cache = TempResultCache(
