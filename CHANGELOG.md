@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 ## [0.15] - dev
 
 ## [0.14]
+### [0.14.5] - 2025-06-25
+
+#### Changed
+- made sure worker accepting only one task and queue is emptied onyl when a worker finishes (ensuring that workers not getting killed before done when scaling with keda in k8s)
+
 ### [0.14.4] - 2025-06-25
 
 #### Changed
