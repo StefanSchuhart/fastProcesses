@@ -7,7 +7,7 @@ from typing import Any, Dict
 from celery import Task
 from celery.exceptions import SoftTimeLimitExceeded
 from fastapi.encoders import jsonable_encoder
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from fastprocesses.common import celery_app, job_status_cache, temp_result_cache
 from fastprocesses.core.logging import logger
@@ -116,6 +116,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
 
     result = None
     job_status = JobStatusCode.RUNNING
+    job_message = ""
     data = json.loads(serialized_data)
 
     logger.info(f"Executing process {process_id} with data {serialized_data[:80]}")
@@ -165,17 +166,26 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
         # Update job with error status
         job_status = JobStatusCode.FAILED
 
+        # decide if its a validation error or a general error
+        if isinstance(e, ValueError) or isinstance(e, ValidationError):
+            logger.error(f"Validation error in process {process_id}: {e}")
+            job_message = e
+            raise e
+        
+        # get exception traceback for logging, in other cases 
+        # (hiding app interna for security reasons)
         user_frame = traceback.TracebackException.from_exception(e).stack
 
-        logger.error(
-            f"Error in {service.__class__.__name__}.{user_frame[-1].name};"
-            f" line: {user_frame[-1].line} (lineno: {user_frame[-1].lineno});"
-            f" file: {user_frame[-1].filename}"
+        logger.exception(e, exc_info=True)
+
+        job_message = (
+            f"Error in {service.__class__.__name__}.{user_frame[-1].name} "
+            f"line: '{user_frame[-1].line}' (lineno: {user_frame[-1].lineno})"
         )
 
+        # this information will be written to celery job results and thus to /job/{job_id}/results 
         raise Exception(
-            f"Error in {service.__class__.__name__}.{user_frame[-1].name} "
-            f"line: {user_frame[-1].line} (lineno: {user_frame[-1].lineno})"
+            job_message
         )
 
     finally:
@@ -203,7 +213,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
             update_job_status(
                 job_id,
                 0,
-                "Process failed",
+                str(job_message),
                 job_status
             )
     
