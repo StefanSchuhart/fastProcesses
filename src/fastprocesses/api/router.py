@@ -33,6 +33,13 @@ def get_router(
 ) -> APIRouter:
     router = APIRouter()
 
+    @router.get("/health", tags=["Health"])
+    async def health_check():
+        """
+        Basic health check endpoint for FastAPI.
+        """
+        return {"status": "ok"}
+
     @router.get("/conformance")
     async def conformance() -> Conformance:
         logger.debug("Conformance endpoint accessed")
