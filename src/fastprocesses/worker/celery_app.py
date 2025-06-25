@@ -40,7 +40,9 @@ class CacheResultTask(Task):
             serialized_result = temp_result_cache.put(key=key, value=retval)
 
             # TODO: shorten retval log!
-            logger.info(f"Saved result with key {key} to cache: {serialized_result[:80]}")
+            logger.info(
+                f"Saved result with key {key} to cache: {serialized_result[:80]}"
+            )
         except Exception as e:
             logger.error(f"Error caching results: {e}")
 
@@ -183,14 +185,15 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
         # (hiding app interna for security reasons)
         user_frame = traceback.TracebackException.from_exception(e).stack
 
-        logger.exception(e, exc_info=True)
+        logger.exception(str(e), exc_info=True)
 
         job_message = (
             f"Error in {service.__class__.__name__}.{user_frame[-1].name} "
             f"line: '{user_frame[-1].line}' (lineno: {user_frame[-1].lineno})"
         )
 
-        # this information will be written to celery job results and thus to /job/{job_id}/results 
+        # this information will be written to celery job 
+        # results and thus to /job/{job_id}/results
         raise Exception(
             job_message
         )
