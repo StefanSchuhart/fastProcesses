@@ -138,6 +138,13 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
 
     # Second: Execute the process
     try:
+        job_status = JobStatusCode.RUNNING
+        update_job_status(
+            job_id,
+            0,
+            "Process started",
+            job_status,
+        )
         result = service.run_execute(
             data, job_progress_callback=job_progress_callback
         )
