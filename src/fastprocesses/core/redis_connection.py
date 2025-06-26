@@ -1,3 +1,4 @@
+from socket import socket
 import time
 from typing import Optional
 
@@ -14,7 +15,7 @@ class RedisConnection:
     Unified Redis connection handler with robust retry and reconnection logic.
     """
     def __init__(self, url: str, connection_config: Optional[dict] = None,
-                 retry_config: Optional[dict] = None):
+        retry_config: Optional[dict] = None):
         self._pool: Optional[redis.ConnectionPool] = None
         self._redis: Optional[redis.Redis] = None
         self.url = url
@@ -39,13 +40,7 @@ class RedisConnection:
                 cap=self.retry_config['max_delay'],
                 base=self.retry_config['base_delay']
             ),
-            retries=self.retry_config["max_retries"],
-            supported_errors=(
-                ConnectionError,
-                TimeoutError,
-                ConnectionResetError,
-                OSError,
-            )
+            retries=self.retry_config["max_retries"]
         )
         self._pool = redis.ConnectionPool.from_url(
             self.url,
@@ -59,6 +54,7 @@ class RedisConnection:
             self._create_connection_pool()
         max_retries = self.retry_config['max_retries']
         base_delay = self.retry_config['base_delay']
+
         for attempt in range(max_retries + 1):
             try:
                 self._redis = redis.Redis(connection_pool=self._pool)
