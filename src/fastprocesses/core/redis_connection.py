@@ -33,6 +33,14 @@ class RedisConnection:
             'base_delay': 1,
             'max_delay': 60,
         }
+        self.connection_errors = (
+            ConnectionError, 
+            TimeoutError, 
+            ConnectionResetError,
+            OSError, 
+            IOError, 
+            EOFError
+        )
 
     def _create_connection_pool(self):
         retry = Retry(
@@ -83,3 +91,20 @@ class RedisConnection:
             self._establish_connection()
         assert self._redis is not None
         return self._redis
+
+    def _execute_redis_command(self, command_name: str, *args, **kwargs):
+        """Execute Redis command with Kombu-style error handling."""
+        client = self.client
+        try:
+            command = getattr(client, command_name)
+            return command(*args, **kwargs)
+        except self.connection_errors as exc:
+            logger.warning(f"Redis connection error, reconnecting: {exc}")
+            # Reset client to force reconnection (Kombu approach)
+            self._client = None
+            self._pool = None
+            
+            # Retry once with new connection
+            client = self.client
+            command = getattr(client, command_name)
+            return command(*args, **kwargs)
