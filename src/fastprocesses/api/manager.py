@@ -368,6 +368,8 @@ class ProcessManager:
 
         result = AsyncResult(job_id)
 
+        # TODO: if the job was found, but result is retrieved from cache AND celery worker is not running,
+        # job status is successful, but result is not ready yet
         if result.state == ("PENDING" or "STARTED" or "RETRY"):
             logger.error(f"Result for job ID {job_id} is not ready")
             raise JobNotReadyError(job_id)
