@@ -101,7 +101,7 @@ class RedisConnection:
         except self.connection_errors as exc:
             logger.warning(f"Redis connection error, reconnecting: {exc}")
             # Reset client to force reconnection (Kombu approach)
-            self._client = None
+            self._redis = None
             self._pool = None
             
             # Retry once with new connection
