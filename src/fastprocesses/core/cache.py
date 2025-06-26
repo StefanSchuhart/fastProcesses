@@ -1,51 +1,53 @@
 import json
 from typing import Any
 
-import redis
-from pydantic import RedisDsn
 from fastapi.encoders import jsonable_encoder
-from redis.backoff import ExponentialBackoff
-from redis.exceptions import ConnectionError, TimeoutError
-from redis.retry import Retry
 
 from fastprocesses.core.logging import logger
+from fastprocesses.core.redis_connection import RedisConnection
 
 
 class TempResultCache:
     def __init__(
-            self,
-            key_prefix: str,
-            ttl_hours: int,
-            connection: RedisDsn | None = None
+        self,
+        key_prefix: str,
+        ttl_hours: int,
+        connection: str | None = None,
+        redis_connection: RedisConnection | None = None,
     ):
-        self._retry = Retry(ExponentialBackoff(cap=10, base=1), -1)
-        self._redis: redis.Redis = redis.Redis.from_url(
-            str(connection),
-            retry=self._retry,
-            retry_on_error=[ConnectionError, TimeoutError, ConnectionResetError],
-            health_check_interval=1,
-        )
+        if redis_connection is None:
+            if connection is None:
+                raise ValueError(
+                    "Either redis_connection or connection string must be provided."
+                )
+            redis_connection = RedisConnection(str(connection))
+        self.redis_connection = redis_connection
         self._key_prefix = key_prefix
         self._ttl_hours = ttl_hours
+
+    @property
+    def _redis(self):
+        return self.redis_connection.client
 
     def get(self, key: str) -> dict | None:
         logger.debug(f"Getting cache for key: {key}")
         key = self._make_key(key)
         serialized_value = self._redis.get(key)
-
-        if serialized_value is not None:
+        if serialized_value is not None and hasattr(serialized_value, "decode"):
+            logger.debug(f"Received data from cache: {str(serialized_value)[:80]}")
+            return json.loads(serialized_value.decode("utf-8"))
+        elif isinstance(serialized_value, bytes):
+            logger.debug(f"Received data from cache: {str(serialized_value)[:80]}")
+            return json.loads(serialized_value.decode("utf-8"))
+        elif isinstance(serialized_value, str):
             logger.debug(f"Received data from cache: {serialized_value[:80]}")
-
             return json.loads(serialized_value)
-
         logger.info(f"Cache miss for key: {key}")
         return None
 
     def put(self, key: str, value: Any) -> str:
         logger.debug(f"Putting cache for key: {key}")
         key = self._make_key(key)
-        # note: exclude_none=True is used to exclude None values from the JSON serialization
-
         jsonable_value = jsonable_encoder(value, exclude_none=True)
         serialized_value = json.dumps(jsonable_value)
         ttl = self._ttl_hours * 60 * 60  # Convert hours to seconds
@@ -64,18 +66,8 @@ class TempResultCache:
         return f"{self._key_prefix}:{key}"
 
     def keys(self, pattern: str = "*") -> list[str]:
-        """
-        Get all keys matching the pattern.
-
-        Args:
-            pattern (str): Redis key pattern to match. Defaults to "*".
-
-        Returns:
-            list[str]: List of matching keys without the prefix
-        """
         logger.debug(f"Getting keys matching pattern: {pattern}")
         full_pattern = self._make_key(pattern)
         keys = self._redis.keys(full_pattern)
-        # Remove prefix from keys before returning
         prefix_len = len(self._key_prefix) + 1  # +1 for the colon
-        return [key[prefix_len:] for key in keys]
+        return [key.decode("utf-8")[prefix_len:] for key in keys]
