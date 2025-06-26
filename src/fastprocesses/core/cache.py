@@ -32,7 +32,9 @@ class TempResultCache:
     def get(self, key: str) -> dict | None:
         logger.debug(f"Getting cache for key: {key}")
         key = self._make_key(key)
-        serialized_value = self._redis.get(key)
+
+        serialized_value = self.redis_connection._execute_redis_command("get", key)
+
         if serialized_value is not None and hasattr(serialized_value, "decode"):
             logger.debug(f"Received data from cache: {str(serialized_value)[:80]}")
             return json.loads(serialized_value.decode("utf-8"))
@@ -51,23 +53,28 @@ class TempResultCache:
         jsonable_value = jsonable_encoder(value, exclude_none=True)
         serialized_value = json.dumps(jsonable_value)
         ttl = self._ttl_hours * 60 * 60  # Convert hours to seconds
-        self._redis.setex(key, ttl, serialized_value)
+
+        self.redis_connection._execute_redis_command("setex", key, ttl, serialized_value)
 
         return serialized_value
 
     def delete(self, key: str) -> None:
         logger.debug(f"Deleting cache for key: {key}")
         key = self._make_key(key)
-        self._redis.delete(key)
+
+        self.redis_connection._execute_redis_command("delete", key)
 
     def _make_key(self, key: str) -> str:
         if isinstance(key, bytes):
             key = key.decode("utf-8")  # Decode bytes to string
+        
         return f"{self._key_prefix}:{key}"
 
     def keys(self, pattern: str = "*") -> list[str]:
         logger.debug(f"Getting keys matching pattern: {pattern}")
         full_pattern = self._make_key(pattern)
-        keys = self._redis.keys(full_pattern)
+        
+        keys = self.redis_connection._execute_redis_command("keys", full_pattern)
+        
         prefix_len = len(self._key_prefix) + 1  # +1 for the colon
         return [key.decode("utf-8")[prefix_len:] for key in keys]
