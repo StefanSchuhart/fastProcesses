@@ -13,13 +13,19 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 #### Fixed
 
 ### Planned
-- improve/implement retry mechanisms when calling celery tasks and redis cache
 - further improve storing jobs and job results in cache using a dedicated object model (eventually using redis_om)
 - implement callback mechanism according to [OGC API Processes requirment class](https://docs.ogc.org/is/18-062r2/18-062r2.html#toc52)
 
 ## [0.15] - dev
 
+### [0.15.0] - 2025-06-26
+
+#### changed
+- implement retry mechanism when calling celery tasks and redis cache
+- improved celery worker config
+
 ## [0.14]
+
 ### [0.14.5] - 2025-06-25
 
 #### Changed
