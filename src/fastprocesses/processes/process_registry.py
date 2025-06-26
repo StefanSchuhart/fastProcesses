@@ -44,8 +44,11 @@ class ProcessRegistry:
                 f"Process data to be registered:\n{json.dumps(process_data, indent=4)}"
             )
 
-            result = self.redis.hset(
-                self.registry_key, process_id, json.dumps(process_data)
+            result = self.redis_connection._execute_redis_command(
+                'hset', 
+                self.registry_key, 
+                process_id, 
+                json.dumps(process_data)
             )
 
             logger.debug(f"Redis hset result for registered process: {result}")
@@ -68,7 +71,7 @@ class ProcessRegistry:
             List[str]: A list of process IDs.
         """
         logger.debug("Retrieving all registered process IDs")
-        keys: list[bytes] = self.redis.hkeys(self.registry_key)  # type: ignore
+        keys: list[bytes] = self.redis_connection._execute_redis_command("hkeys",self.registry_key)  # type: ignore
 
         return [key.decode("utf-8") for key in keys]
 
@@ -84,7 +87,11 @@ class ProcessRegistry:
         """
         logger.debug(f"Checking if process with ID {process_id} is registered")
 
-        return self.redis.hexists(self.registry_key, process_id)  # type: ignore
+        return self.redis_connection._execute_redis_command(
+            'hexists', 
+            self.registry_key, 
+            process_id
+        )
 
     def get_process(self, process_id: str) -> BaseProcess:
         """
@@ -96,7 +103,11 @@ class ProcessRegistry:
         The locate() function dynamically imports the class based on its path.
         """
         logger.info(f"Retrieving process with ID: {process_id}")
-        process_data = self.redis.hget(self.registry_key, process_id)
+        process_data = self.redis_connection._execute_redis_command(
+            'hget', 
+            self.registry_key, 
+            process_id
+        )
 
         if not process_data:
             logger.error(f"Process {process_id} not found!")
