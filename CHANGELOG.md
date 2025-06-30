@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - implement callback mechanism according to [OGC API Processes requirment class](https://docs.ogc.org/is/18-062r2/18-062r2.html#toc52)
 
 ## [0.15] - dev
+### [0.15.1] - 2025-06-30
+#### Fixed
+- settings for time to live results cache and job status cache was hours instead of days
+
+#### changed
+- implement retry mechanism when calling celery tasks and redis cache
+- improved celery worker config
 
 ### [0.15.0] - 2025-06-26
 
