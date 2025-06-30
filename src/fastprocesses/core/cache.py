@@ -11,7 +11,7 @@ class TempResultCache:
     def __init__(
         self,
         key_prefix: str,
-        ttl_hours: int,
+        ttl_days: int,
         connection: str | None = None,
         redis_connection: RedisConnection | None = None,
     ):
@@ -23,7 +23,7 @@ class TempResultCache:
             redis_connection = RedisConnection(str(connection))
         self.redis_connection = redis_connection
         self._key_prefix = key_prefix
-        self._ttl_hours = ttl_hours
+        self._ttl_days = ttl_days
 
     @property
     def _redis(self):
@@ -52,9 +52,11 @@ class TempResultCache:
         key = self._make_key(key)
         jsonable_value = jsonable_encoder(value, exclude_none=True)
         serialized_value = json.dumps(jsonable_value)
-        ttl = self._ttl_hours * 60 * 60  # Convert hours to seconds
+        ttl = self._ttl_days * 24 * 60 * 60  # Convert days to seconds
 
-        self.redis_connection._execute_redis_command("setex", key, ttl, serialized_value)
+        self.redis_connection._execute_redis_command(
+            "setex", key, ttl, serialized_value
+        )
 
         return serialized_value
 
@@ -67,14 +69,14 @@ class TempResultCache:
     def _make_key(self, key: str) -> str:
         if isinstance(key, bytes):
             key = key.decode("utf-8")  # Decode bytes to string
-        
+
         return f"{self._key_prefix}:{key}"
 
     def keys(self, pattern: str = "*") -> list[str]:
         logger.debug(f"Getting keys matching pattern: {pattern}")
         full_pattern = self._make_key(pattern)
-        
+
         keys = self.redis_connection._execute_redis_command("keys", full_pattern)
-        
+
         prefix_len = len(self._key_prefix) + 1  # +1 for the colon
         return [key.decode("utf-8")[prefix_len:] for key in keys]
