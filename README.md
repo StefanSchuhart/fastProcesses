@@ -4,7 +4,7 @@ A library to create a FastAPI-based OGC API Processes wrapper around existing pr
 
 AI helped to create this code.
 
-## Version: 0.15.0
+## Version: 0.15.1
 
 ### Description
 
