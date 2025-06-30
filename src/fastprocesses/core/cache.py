@@ -1,5 +1,6 @@
 import json
 from typing import Any
+from pydantic import RedisDsn
 
 from fastapi.encoders import jsonable_encoder
 
@@ -12,7 +13,7 @@ class TempResultCache:
         self,
         key_prefix: str,
         ttl_days: int,
-        connection: str | None = None,
+        connection: str | RedisDsn | None = None,
         redis_connection: RedisConnection | None = None,
     ):
         if redis_connection is None:
