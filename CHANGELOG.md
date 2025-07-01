@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [0.15] - dev
 ### [0.15.1] - 2025-06-30
+#### Changed
+- removed unsued celery worker
+- removed unsued task routes
+- added celery config log (debug)
+
+### [0.15.1] - 2025-06-30
 #### Fixed
 - settings for time to live results cache and job status cache was hours instead of days
 
