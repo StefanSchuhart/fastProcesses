@@ -12,7 +12,19 @@ from fastprocesses.core.cache import TempResultCache
 from fastprocesses.core.config import OGCProcessesSettings
 from fastprocesses.core.logging import InterceptHandler, logger
 
+
 settings = OGCProcessesSettings()
+
+logger.add(
+    sys.stdout,
+    level=settings.FP_LOG_LEVEL,
+    format="{time:YYYY-MM-DD at HH:mm:ss} | {level} | {message}",
+    backtrace=True,
+    diagnose=True,
+)
+
+# Intercept standard logging
+logging.basicConfig(handlers=[InterceptHandler()], level=settings.FP_LOG_LEVEL)
 
 settings.print_settings()
 
@@ -20,14 +32,11 @@ settings.print_settings()
 # Graceful shutdown handler
 def sigterm_handler(signum, frame):
     logger.info(f"Received signal {signum}, initiating graceful shutdown...")
-    # Let Celery handle the shutdown gracefully
-    sys.exit(0)
 
 
 def sigint_handler(signum, frame):
     logger.info("Received SIGINT, initiating graceful shutdown...")
     sys.exit(0)
-
 
 def custom_json_serializer(obj):
     # Use jsonable_encoder to handle complex objects
@@ -65,12 +74,6 @@ celery_app.conf.update(
     accept_content=["custom_json", "json"],  # Accept only the custom serializer
     timezone="UTC",
     enable_utc=True,
-    task_routes={
-        "fastprocesses.worker.celery_app.execute_process": {
-            "queue": "process_tasks",
-            "routing_key": "process_tasks",
-        }
-    },
     broker_connection_retry=True,
     broker_connection_retry_on_startup=True,
     # set limits for long-running tasks
@@ -97,6 +100,9 @@ celery_app.conf.update(
         "retry_on_connection_failure": True,
     },
 )
+
+for key, value in celery_app.conf.items():
+    logger.debug(f"Celery config: {key} = {value}")
 
 
 # Celery signal handlers
@@ -125,17 +131,3 @@ job_status_cache = TempResultCache(
     ttl_days=settings.FP_JOB_STATUS_TTL_DAYS,
     connection=settings.results_cache.connection,
 )
-
-# Info logs to stdout
-
-logger.add(
-    sys.stdout,
-    level=settings.FP_LOG_LEVEL,
-    format="{time:YYYY-MM-DD at HH:mm:ss} | {level} | {message}",
-    backtrace=True,
-    diagnose=True,
-)
-
-
-# Intercept standard logging
-logging.basicConfig(handlers=[InterceptHandler()], level=settings.FP_LOG_LEVEL)
