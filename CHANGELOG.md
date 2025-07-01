@@ -17,11 +17,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - implement callback mechanism according to [OGC API Processes requirment class](https://docs.ogc.org/is/18-062r2/18-062r2.html#toc52)
 
 ## [0.15] - dev
-### [0.15.1] - 2025-06-30
+### [0.15.2] - 2025-07-01
 #### Changed
 - removed unsued celery worker
 - removed unsued task routes
 - added celery config log (debug)
+
+# Fixed
+- handle process class in path not found more gracefully
 
 ### [0.15.1] - 2025-06-30
 #### Fixed
