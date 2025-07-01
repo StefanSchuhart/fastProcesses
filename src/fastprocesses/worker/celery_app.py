@@ -10,7 +10,7 @@ from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ValidationError
 
 from fastprocesses.common import celery_app, job_status_cache, temp_result_cache
-from fastprocesses.core.exceptions import InputValidationError
+from fastprocesses.core.exceptions import InputValidationError, ProcessClassNotFoundError
 from fastprocesses.core.logging import logger
 from fastprocesses.core.models import (
     CalculationTask,
@@ -138,6 +138,8 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
             f"Process '{process_id}' not found.",
             job_status,
         )
+        raise e
+    except ProcessClassNotFoundError as e:
         raise e
 
     # Second: deep validation of inputs

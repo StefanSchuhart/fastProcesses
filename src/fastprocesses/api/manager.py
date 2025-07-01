@@ -19,6 +19,7 @@ from fastprocesses.core.exceptions import (
     JobNotFoundError,
     JobNotReadyError,
     OutputValidationError,
+    ProcessClassNotFoundError,
     ProcessNotFoundError,
 )
 from fastprocesses.core.logging import logger
@@ -256,8 +257,13 @@ class ProcessManager:
             logger.error(f"Process {process_id} not found!")
             raise ProcessNotFoundError(process_id)
 
-        service = self.process_registry.get_process(process_id)
-        return service.get_description()
+        try:
+            service = self.process_registry.get_process(process_id)
+
+            return service.get_description()
+
+        except ProcessClassNotFoundError as e:
+            logger.error(e)
 
     def execute_process(
         self,
