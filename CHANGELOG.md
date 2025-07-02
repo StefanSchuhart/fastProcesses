@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - implement callback mechanism according to [OGC API Processes requirment class](https://docs.ogc.org/is/18-062r2/18-062r2.html#toc52)
 
 ## [0.15] - dev
+### [0.15.3] - 2025-07-02
+#### Added
+- job mode: worker shuts down on task completion (set FP_CELERY_JOB_MODE to "true") 
+
 ### [0.15.2] - 2025-07-01
 #### Changed
 - removed unsued celery worker
