@@ -81,10 +81,21 @@ def get_router(
         process_id: str,
     ) -> ProcessDescription | OGCExceptionResponse:
         logger.debug(f"Describe process endpoint accessed for process ID: {process_id}")
+        
         try:
             return process_manager.get_process_description(process_id)
-        except ProcessNotFoundError as e:
+        except ValueError as e:
             logger.error(f"Process {process_id} not found: {e}")
+            exception = OGCExceptionResponse(
+                type="http://www.opengis.net/def/exceptions/ogcapi-processes-1/1.0/no-such-process",
+                title="Process Not Found",
+                status=404,
+                detail=f"Process '{process_id}' not found.",
+                instance=f"/processes/{process_id}",
+            )
+            raise HTTPException(status_code=404, detail=exception)
+        except ProcessNotFoundError as e:
+            logger.exception(e)
             exception = OGCExceptionResponse(
                 type="http://www.opengis.net/def/exceptions/ogcapi-processes-1/1.0/no-such-process",
                 title="Process Not Found",
