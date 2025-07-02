@@ -1,6 +1,7 @@
 # worker/celery_app.py
 import json
 from datetime import datetime, timezone
+import signal
 import traceback
 from typing import Any, Dict
 
@@ -9,7 +10,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ValidationError
 
-from fastprocesses.common import celery_app, job_status_cache, temp_result_cache
+from fastprocesses.common import celery_app, job_status_cache, sigint_handler, sigterm_handler, temp_result_cache
 from fastprocesses.core.exceptions import InputValidationError, ProcessClassNotFoundError
 from fastprocesses.core.logging import logger
 from fastprocesses.core.models import (
@@ -25,6 +26,9 @@ from fastprocesses.processes.process_registry import get_process_registry
 # which does not depend on arbitrary processed data, which can change
 # when the process is updated or changed!
 
+# Register signal handlers
+signal.signal(signal.SIGTERM, sigterm_handler)
+signal.signal(signal.SIGINT, sigint_handler)
 
 class CacheResultTask(Task):
     def on_success(self, retval: dict | BaseModel, task_id, args, kwargs):
