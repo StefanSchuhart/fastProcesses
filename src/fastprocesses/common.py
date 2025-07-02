@@ -126,15 +126,12 @@ def shutdown_worker_after_task(
     task=None, state=None, retval=None, **kwargs
 ):
     if settings.FP_CELERY_JOB_MODE:
-        if state == "FAILURE":
-            logger.info(f"Job mode: task ({task_id}) failed, exiting with code 1.")
-            sys.exit(1)
-        else:
-            logger.info(
-                f"Job mode: task ({task_id}) succeeded, requesting graceful shutdown."
-            )
-            control = Control(celery_app)
-            control.shutdown()
+        logger.info(
+            "Job mode enabled: shutting down "
+            f"worker after completion of task {task_id} (signal)."
+        )
+        control = Control(celery_app)
+        control.shutdown()
 
 temp_result_cache = TempResultCache(
     key_prefix="process_results",
