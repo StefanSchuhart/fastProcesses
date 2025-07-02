@@ -48,11 +48,6 @@ def custom_json_deserializer(data):
     # Deserialize JSON back into Python objects
     return json.loads(data)
 
-
-# Register signal handlers
-signal.signal(signal.SIGTERM, sigterm_handler)
-signal.signal(signal.SIGINT, sigint_handler)
-
 # Register the custom serializer
 register(
     "custom_json",
