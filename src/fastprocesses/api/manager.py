@@ -260,10 +260,13 @@ class ProcessManager:
         try:
             service = self.process_registry.get_process(process_id)
 
-            return service.get_description()
-
+        except ValueError as e:
+            raise e
         except ProcessClassNotFoundError as e:
-            logger.error(e)
+            raise e
+        
+        
+        return service.get_description()
 
     def execute_process(
         self,
