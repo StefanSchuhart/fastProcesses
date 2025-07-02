@@ -4,7 +4,8 @@ import signal
 import sys
 
 from celery import Celery
-from celery.signals import worker_ready, worker_shutdown
+from celery.app.control import Control
+from celery.signals import worker_ready, worker_shutdown, task_postrun
 from fastapi.encoders import jsonable_encoder
 from kombu.serialization import register
 
@@ -119,6 +120,15 @@ def worker_ready_handler(sender, **kwargs):
         f"worker_prefetch_multiplier: {celery_app.conf.worker_prefetch_multiplier}"
     )
 
+@task_postrun.connect
+def shutdown_worker_after_task(sender=None, **kwargs):
+    if settings.FP_CELERY_JOB_MODE:
+        logger.info(
+            "Job mode enabled: shutting down "
+            "worker after task completion (signal)."
+        )
+        control = Control(celery_app)
+        control.shutdown()
 
 temp_result_cache = TempResultCache(
     key_prefix="process_results",

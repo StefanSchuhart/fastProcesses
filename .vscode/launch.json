@@ -46,6 +46,30 @@
             "envFile": "${workspaceFolder}/.env",
             "justMyCode": false,
             "autoReload": {"enable": true},
+            "preLaunchTask": "start-redis-container",
+        },
+        {
+            "name": "Worker (job mode)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "celery",
+            "console": "integratedTerminal",
+            "args": [
+                "-A",
+                "fastprocesses.worker.celery_app",
+                "worker",
+                "--loglevel=debug",
+                "--concurrency=1",
+                "--max-tasks-per-child=1"
+            ],
+            "jinja": true,
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "FP_CELERY_JOB_MODE": "1"
+            },
+            "justMyCode": false,
+            "autoReload": {"enable": true},
+            "preLaunchTask": "start-redis-container",
             "postDebugTask": "stop-redis-container",
         },
         {

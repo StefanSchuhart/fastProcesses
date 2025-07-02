@@ -74,6 +74,10 @@ class OGCProcessesSettings(BaseSettings):
     FP_CELERY_RESULTS_TTL_DAYS: int = 365
     FP_CELERY_TASK_TLIMIT_HARD: int = 900 # seconds
     FP_CELERY_TASK_TLIMIT_SOFT: int = 600 # seconds
+    FP_CELERY_JOB_MODE: bool = Field(
+        default=False,
+        description="Enable job mode for graceful shutdown after task completion"
+    )
     FP_RESULTS_TEMP_TTL_HOURS: int = Field(
         default=48,  # 2 days
         description="Time to live for cached results in days",
