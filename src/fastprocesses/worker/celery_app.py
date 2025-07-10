@@ -176,6 +176,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
             0,
             "Process started",
             job_status,
+            started=datetime.now(timezone.utc),
         )
         result = service.run_execute(
             data, job_progress_callback=job_progress_callback
