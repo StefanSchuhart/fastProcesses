@@ -494,7 +494,7 @@ class ProcessManager:
             self.job_status_cache.put(f"job:{task.id}", job_info)
 
             return ProcessExecResponse(
-                status="successful", jobID=task.id, type="process"
+                status="accepted", jobID=task.id, type="process"
             )
 
         return None
