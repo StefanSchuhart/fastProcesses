@@ -114,6 +114,7 @@ def worker_ready_handler(sender, **kwargs):
     logger.info(
         f"worker_prefetch_multiplier: {celery_app.conf.worker_prefetch_multiplier}"
     )
+    logger.info(f"Job mode enabled: {settings.FP_CELERY_JOB_MODE}")
 
 @task_postrun.connect
 def shutdown_worker_after_task(
