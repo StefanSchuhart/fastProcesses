@@ -92,7 +92,10 @@ class OGCProcessesSettings(BaseSettings):
     )
     FP_LOG_LEVEL: str = Field(
         default="INFO",
-        description="Logging level for the application. Options: DEBUG, INFO, WARNING, ERROR, CRITICAL",
+        description=(
+            "Logging level for the application. "
+            "Options: DEBUG, INFO, WARNING, ERROR, CRITICAL"
+        ),
     )
 
     @field_validator("FP_CORS_ALLOWED_ORIGINS", mode="before")
