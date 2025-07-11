@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - implement callback mechanism according to [OGC API Processes requirment class](https://docs.ogc.org/is/18-062r2/18-062r2.html#toc52)
 
 ## [0.15] - dev
+
+### [0.15.5] - 2025-07-02
+#### Fixed
+- when results will be retrieved from cache job status is "accepted", not immediately "successful", because worker cold starts can be slow
+
+### [0.15.4] - 2025-07-02
+#### Fixed
+- added missing job "started" date
+
+
 ### [0.15.3] - 2025-07-02
 #### Added
 - job mode: worker shuts down on task completion (set FP_CELERY_JOB_MODE to "true") 
