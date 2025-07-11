@@ -279,14 +279,20 @@ def check_cache(calculation_task: Dict[str, Any]) -> Dict[str, Any]:
     return {"status": "MISS"}
 
 
-@celery_app.task(name="fastprocesses.find_result_in_cache")
-def find_result_in_cache(celery_key: str) -> dict | None:
+@celery_app.task(bind=True, name="fastprocesses.find_result_in_cache")
+def find_result_in_cache(self, celery_key: str) -> dict | None:
     """
     Retrieve result from cache
     """
     result = temp_result_cache.get(key=celery_key)
     if result:
         logger.info(f"Retrieved result from cache for key {celery_key}")
+        update_job_status(
+            job_id=self.request.id,
+            progress=100,
+            message="Result retrieved from cache.",
+            status=JobStatusCode.SUCCESSFUL,
+        )
     return result
 
 

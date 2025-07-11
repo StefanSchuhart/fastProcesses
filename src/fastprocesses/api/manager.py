@@ -445,8 +445,7 @@ class ProcessManager:
 
         return jobs, next_link
 
-    # direct chache checking is needed for environments using keda, because worker cold starts will
-    # be too slow
+    # TODO: fast worker lane: dedicated queue for cache retrieval
     def _check_cache(
         self, calculation_task: CalculationTask, process_id: str
     ) -> ProcessExecResponse | None:
@@ -473,22 +472,15 @@ class ProcessManager:
                 {
                     "jobID": task.id,
                     "processID": process_id,
-                    "status": JobStatusCode.SUCCESSFUL,
+                    "status": JobStatusCode.ACCEPTED,
                     "type": "process",
                     "created": datetime.now(timezone.utc),
                     "started": datetime.now(timezone.utc),
-                    "finished": datetime.now(timezone.utc),
-                    "updated": datetime.now(timezone.utc),
-                    "progress": 100,
-                    "message": "Result retrieved from cache",
+                    "finished": None,
+                    "updated": None,
+                    "progress": 0,
+                    "message": "Result will be retrieved from cache.",
                     "links": [
-                        Link.model_validate(
-                            {
-                                "href": f"/jobs/{task.id}/results",
-                                "rel": "results",
-                                "type": "application/json",
-                            }
-                        ),
                         Link.model_validate(
                             {
                                 "href": f"/jobs/{task.id}",
