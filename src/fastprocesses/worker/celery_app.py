@@ -75,6 +75,7 @@ def update_job_status(
     """
 
     job_key = f"job:{job_id}"
+    ## BUG: need to adress cache miss here!
     job_info = JobStatusInfo.model_validate(job_status_cache.get(job_key))
 
     job_info.status = status or job_info.status
@@ -154,6 +155,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
     # Second: deep validation of inputs
     try:
         logger.info(f"Worker validating inputs for process {process_id}")
+        # BUG: if redis returns no job_status, this fails and creates a ValueError too
         update_job_status(
             job_id,
             0,
@@ -164,6 +166,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
     except ValueError as e:
         logger.error(f"Input validation failed for process {process_id}: {str(e)}")
         job_status = JobStatusCode.FAILED
+        # BUG: if redis returns no job_status, this fails and creates a ValueError too
         update_job_status(
             job_id,
             0,
@@ -176,6 +179,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
     try:
         logger.info(f"Worker executing process {process_id} with data {data}")
         job_status = JobStatusCode.RUNNING
+        # BUG: if redis returns no job_status, this fails and creates a ValueError too
         update_job_status(
             job_id,
             0,
