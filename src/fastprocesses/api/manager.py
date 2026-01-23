@@ -1,4 +1,5 @@
 import json
+import time
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
@@ -77,9 +78,17 @@ class AsyncExecutionStrategy(ExecutionStrategy):
         )
 
         # Submit task to Celery worker queue for background processing
+        send_start = time.monotonic()
         task = self.process_manager.celery_app.send_task(
             "fastprocesses.execute_process", args=[process_id, serialized_data]
         )
+        send_elapsed = time.monotonic() - send_start
+        if send_elapsed > 1.0:
+            logger.warning(
+                "Celery async send_task for process_id=%s took %.2fs",
+                process_id,
+                send_elapsed,
+            )
 
         # Initialize job metadata in cache with status 'accepted'
         job_status = JobStatusInfo.model_validate(
@@ -126,9 +135,17 @@ class SyncExecutionStrategy(ExecutionStrategy):
         serialized_data = json.dumps(
             calculation_task.model_dump(include={"inputs", "outputs", "response"})
         )
+        send_start = time.monotonic()
         task = self.process_manager.celery_app.send_task(
             "fastprocesses.execute_process", args=[process_id, serialized_data]
         )
+        send_elapsed = time.monotonic() - send_start
+        if send_elapsed > 1.0:
+            logger.warning(
+                "Celery sync send_task for process_id=%s took %.2fs",
+                process_id,
+                send_elapsed,
+            )
 
         # Initialize job metadata in cache with status 'running'
         job_status = JobStatusInfo.model_validate(
@@ -155,9 +172,17 @@ class SyncExecutionStrategy(ExecutionStrategy):
         # Wait for result with timeout
         async_result = AsyncResult(task.id)
         try:
+            get_start = time.monotonic()
             result = async_result.get(
                 timeout=settings.FP_SYNC_EXECUTION_TIMEOUT_SECONDS
             )
+            get_elapsed = time.monotonic() - get_start
+            if get_elapsed > 1.0:
+                logger.warning(
+                    "Celery AsyncResult.get for sync job_id=%s took %.2fs",
+                    task.id,
+                    get_elapsed,
+                )
 
         except celery.exceptions.TimeoutError:
             logger.error(
@@ -513,10 +538,28 @@ class ProcessManager:
 
         if cached_result:
             # Retrieve and return the actual result
+            send_start = time.monotonic()
             task = self.celery_app.send_task(
                 "fastprocesses.find_result_in_cache", args=[calculation_task.celery_key]
             )
+            send_elapsed = time.monotonic() - send_start
+            if send_elapsed > 1.0:
+                logger.warning(
+                    "Celery send_task for cache retrieval key=%s took %.2fs",
+                    calculation_task.celery_key,
+                    send_elapsed,
+                )
+
             # for synchronous execution, we can block here, but must set a graceful timeout
-            return task.get(timeout=settings.FP_SYNC_EXECUTION_TIMEOUT_SECONDS)
+            get_start = time.monotonic()
+            result = task.get(timeout=settings.FP_SYNC_EXECUTION_TIMEOUT_SECONDS)
+            get_elapsed = time.monotonic() - get_start
+            if get_elapsed > 1.0:
+                logger.warning(
+                    "Celery cache retrieval task.get for key=%s took %.2fs",
+                    calculation_task.celery_key,
+                    get_elapsed,
+                )
+            return result
 
         return None
