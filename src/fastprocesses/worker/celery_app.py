@@ -1,8 +1,8 @@
 # worker/celery_app.py
 import json
-from datetime import datetime, timezone
 import signal
 import traceback
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from celery import Task
@@ -11,11 +11,15 @@ from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ValidationError
 
 from fastprocesses.common import (
-    celery_app, job_status_cache, sigint_handler, sigterm_handler,
-    temp_result_cache
+    celery_app,
+    job_status_cache,
+    sigint_handler,
+    sigterm_handler,
+    temp_result_cache,
 )
 from fastprocesses.core.exceptions import (
-    InputValidationError, ProcessClassNotFoundError
+    InputValidationError,
+    ProcessClassNotFoundError,
 )
 from fastprocesses.core.logging import logger
 from fastprocesses.core.models import (
@@ -34,6 +38,7 @@ from fastprocesses.processes.process_registry import get_process_registry
 # Register signal handlers
 signal.signal(signal.SIGTERM, sigterm_handler)
 signal.signal(signal.SIGINT, sigint_handler)
+
 
 class CacheResultTask(Task):
     def on_success(self, retval: dict | BaseModel, task_id, args, kwargs):
@@ -75,8 +80,23 @@ def update_job_status(
     """
 
     job_key = f"job:{job_id}"
-    ## BUG: need to adress cache miss here!
-    job_info = JobStatusInfo.model_validate(job_status_cache.get(job_key))
+    raw_job_info = job_status_cache.get(job_key)
+
+    if not raw_job_info:
+        logger.warning(
+            "Job status for job_id=%s not found in cache when updating; "
+            "skipping status update.",
+            job_id,
+        )
+        return
+
+    try:
+        job_info = JobStatusInfo.model_validate(raw_job_info)
+    except Exception as exc:
+        logger.error(
+            "Failed to validate cached job status for job_id=%s: %r", job_id, exc
+        )
+        return
 
     job_info.status = status or job_info.status
     job_info.progress = progress
@@ -113,10 +133,27 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
             message (str): A message describing the current progress.
             status (str | None): The current status (e.g., "RUNNING", "SUCCESSFUL").
         """
-
         job_key = f"job:{job_id}"
-        # TODO: job disappears(!) when progress is not between 0 and 100
-        job_info = JobStatusInfo.model_validate(job_status_cache.get(job_key))
+        raw_job_info = job_status_cache.get(job_key)
+
+        if not raw_job_info:
+            logger.warning(
+                "Job status for job_id=%s not found in cache during progress "
+                "callback; skipping progress update.",
+                job_id,
+            )
+            return
+
+        try:
+            job_info = JobStatusInfo.model_validate(raw_job_info)
+        except Exception as exc:
+            logger.error(
+                "Failed to validate cached job status in progress callback for "
+                "job_id=%s: %r",
+                job_id,
+                exc,
+            )
+            return
 
         job_info.progress = progress
         job_info.updated = datetime.now(timezone.utc)
@@ -134,7 +171,6 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
 
     logger.info(f"Executing process {process_id} with data {serialized_data[:80]}")
     job_id = self.request.id  # Get the task/job ID
-    
 
     # First: Get the process
     try:
@@ -195,7 +231,6 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
         logger.warning(f"Task {job_id} hit the soft time limit: {e}")
         # Attempt to resume the process
         try:
-            
             result = service.run_execute(
                 data, job_progress_callback=job_progress_callback
             )
@@ -208,7 +243,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
             raise e
 
         logger.info(f"Process {process_id} completed after soft time limit")
-        job_status=JobStatusCode.SUCCESSFUL,
+        job_status = JobStatusCode.SUCCESSFUL
 
     # intercept all errors coming from the process` execution method
     except Exception as e:
@@ -220,8 +255,8 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
             logger.error(f"Validation error in process {process_id}: {e}")
             job_message = e
             raise e
-        
-        # get exception traceback for logging, in other cases 
+
+        # get exception traceback for logging, in other cases
         # (hiding app interna for security reasons)
         user_frame = traceback.TracebackException.from_exception(e).stack
 
@@ -232,7 +267,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
             f"line: '{user_frame[-1].line}' (lineno: {user_frame[-1].lineno})"
         )
 
-        # this information will be written to celery job 
+        # this information will be written to celery job
         # results and thus to /job/{job_id}/results
         raise Exception(
             job_message
@@ -248,15 +283,11 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
             job_status = JobStatusCode.SUCCESSFUL
 
             # Mark job as complete
-            update_job_status(
-                job_id, 100,
-                "Process completed",
-                job_status
-            )
+            update_job_status(job_id, 100, "Process completed", job_status)
 
             # Return from the finally block (this will exit the function)
             return result.model_dump(exclude_none=True)
-        
+
         else:
             job_status = JobStatusCode.FAILED
             # Update job status for failed jobs that didn't raise exceptions
@@ -264,13 +295,14 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
                 job_id,
                 0,
                 str(job_message),
-                job_status
+                job_status,
             )
-    
+
     logger.info(
         f"Process {service.__class__.__name__} execution completed. No result returned"
     )
     return None
+
 
 @celery_app.task(name="fastprocesses.check_cache")
 def check_cache(calculation_task: Dict[str, Any]) -> Dict[str, Any]:
@@ -314,6 +346,10 @@ def find_result_in_cache(self, celery_key: str) -> dict | None:
 #     **kwargs
 # ):
 #     logger.error(
+#         f"Task {task_id} failed. "
+#         f"{repr(exception)}"
+#         f"\nTraceback:\n{traceback}"
+#     )
 #         f"Task {task_id} failed. "
 #         f"{repr(exception)}"
 #         f"\nTraceback:\n{traceback}"
