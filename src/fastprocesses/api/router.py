@@ -1,8 +1,10 @@
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Query, Response, status
+from fastapi.responses import JSONResponse
 
 from fastprocesses.api.manager import ProcessManager
+from fastprocesses.common import job_status_cache
 from fastprocesses.core.exceptions import (
     InputValidationError,
     JobFailedError,
@@ -39,6 +41,29 @@ def get_router(
         Basic health check endpoint for FastAPI.
         """
         return {"status": "ok"}
+
+    @router.get("/health/ready", tags=["Health"])
+    async def readiness_check():
+        """Readiness probe: verifies Redis connectivity for job status cache.
+
+        This is intentionally a bit stricter than the basic liveness check and
+        is meant to be used as a Kubernetes readinessProbe target. If Redis is
+        unavailable, the endpoint returns HTTP 503 so the pod is marked unready
+        without forcing a restart.
+        """
+        try:
+            # Use the bounded Redis connection logic from TempResultCache
+            job_status_cache.redis_connection._execute_redis_command("ping")
+            return {"status": "ready"}
+        except Exception as exc:  # pragma: no cover - defensive logging path
+            logger.error("Readiness check failed: %r", exc)
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={
+                    "status": "unready",
+                    "reason": "redis_unreachable",
+                },
+            )
 
     @router.get("/conformance")
     async def conformance() -> Conformance:
