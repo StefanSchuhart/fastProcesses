@@ -1,3 +1,82 @@
+"""
+Example processes for fastProcesses — three execution styles.
+
+Start the API (one terminal):
+    python examples/run_example.py
+
+Start a Celery worker (second terminal):
+    celery -A fastprocesses.common.celery_app worker --loglevel=info
+
+─────────────────────────────────────────────────────────────────────────────
+1.  simple_process / simple_process_2  — BaseProcess (single worker)
+─────────────────────────────────────────────────────────────────────────────
+
+Async execution (fire-and-forget, returns jobID):
+
+    curl -s -X POST http://localhost:8000/processes/simple_process/execution \
+         -H "Content-Type: application/json" \
+         -d '{
+               "inputs": {"input_text": "hello world"},
+               "outputs": {"upper": {}, "lower": {}},
+               "mode": "async"
+             }' | python3 -m json.tool
+
+Poll status  (replace <jobID> with the id from the response above):
+
+    curl -s http://localhost:8000/jobs/<jobID> | python3 -m json.tool
+
+Fetch result once status is "successful":
+
+    curl -s http://localhost:8000/jobs/<jobID>/results | python3 -m json.tool
+
+Sync execution (blocks until done, returns result directly):
+
+    curl -s -X POST http://localhost:8000/processes/simple_process_2/execution \\
+         -H "Content-Type: application/json" \\
+         -d '{
+               "inputs": {"input_text": "hello"},
+               "outputs": {"output_text": {}},
+               "mode": "sync"
+             }' | python3 -m json.tool
+
+─────────────────────────────────────────────────────────────────────────────
+2.  batch_upper_process — BaseParallelProcess (data fan-out)
+─────────────────────────────────────────────────────────────────────────────
+
+The word list is split into chunks of 3.  Each chunk is queued as an
+independent Celery task so N workers process N chunks truly in parallel.
+
+    curl -s -X POST http://localhost:8000/processes/batch_upper_process/execution \
+         -H "Content-Type: application/json" \
+         -d '{
+               "inputs": {
+                 "words": ["alpha","beta","gamma","delta","epsilon","zeta","eta"]
+               },
+               "outputs": {"words": {}},
+               "mode": "async"
+             }' | python3 -m json.tool
+
+    # → 3 tasks land in the Redis queue (one per chunk)
+    # Poll and fetch result the same way as above.
+
+─────────────────────────────────────────────────────────────────────────────
+3.  text_analysis_process — BaseScatterProcess (operation fan-out)
+─────────────────────────────────────────────────────────────────────────────
+
+Three @parallel_step methods (count_words, count_chars, extract_unique)
+each receive the full input and run on separate workers simultaneously.
+
+    curl -s -X POST http://localhost:8000/processes/text_analysis_process/execution \\
+         -H "Content-Type: application/json" \\
+         -d '{
+               "inputs": {"text": "the quick brown fox jumps over the lazy dog"},
+               "outputs": {"result": {}},
+               "mode": "async"
+             }' | python3 -m json.tool
+
+    # → 3 tasks land in the Redis queue (one per step)
+    # Poll and fetch result the same way as above.
+"""
 import asyncio
 from typing import Any, Callable
 
