@@ -20,7 +20,11 @@ from fastprocesses.common import (
     sigterm_handler,
     temp_result_cache,
 )
-from fastprocesses.core.base_process import BaseParallelProcess
+from fastprocesses.core.base_process import (
+    BaseParallelProcess,
+    BaseScatterProcess,
+    get_parallel_steps,
+)
 from fastprocesses.core.exceptions import (
     InputValidationError,
     ProcessClassNotFoundError,
@@ -213,6 +217,104 @@ def _run_parallel(
     return service.merge_results(sub_results)
 
 
+@celery_app.task(bind=True, name="fastprocesses.execute_scatter_step")
+def execute_scatter_step(
+    self, process_id: str, step_name: str, serialized_data: str
+) -> dict:
+    """
+    Executes one ``@parallel_step`` of a ``BaseScatterProcess``.
+
+    This task is dispatched by the ``execute_process`` task (via a Celery
+    ``group``) when the target process is a ``BaseScatterProcess``.  It calls
+    the named step method on the process instance and returns the result as a
+    plain dict so that Celery can serialise it through the result backend.
+    """
+    data: dict = json.loads(serialized_data)
+    service = get_process_registry().get_process(process_id)
+
+    steps = get_parallel_steps(service)
+    if step_name not in steps:
+        raise ValueError(
+            f"Step '{step_name}' not found on process '{process_id}'. "
+            f"Available steps: {list(steps)}"
+        )
+
+    partial = steps[step_name](data)
+    if inspect.isawaitable(partial):
+        if asyncio.iscoroutine(partial):
+            partial = asyncio.run(partial)
+        else:
+            async def _await(p=partial):
+                return await p
+            partial = asyncio.run(_await())
+
+    return jsonable_encoder(partial)
+
+
+def _run_scatter(
+    service: BaseScatterProcess,
+    process_id: str,
+    data: dict,
+    job_id: str,
+    job_status: str,
+) -> BaseModel:
+    """
+    Orchestrates the scatter/gather execution for a ``BaseScatterProcess``.
+
+    1. Discovers all ``@parallel_step`` methods on *service*.
+    2. Dispatches one ``execute_scatter_step`` Celery task per step, all
+       receiving the **same** serialised *data*.
+    3. Polls the group, reporting aggregate progress against the parent job.
+    4. Calls ``service.merge_results({step_name: result_dict, ...})``.
+    """
+    steps = get_parallel_steps(service)
+    if not steps:
+        raise NotImplementedError(
+            f"{service.__class__.__name__} defines no @parallel_step methods."
+        )
+
+    step_names = list(steps)
+    total = len(step_names)
+    serialized_data = json.dumps(data)
+
+    logger.info(
+        f"Scatter execution for process {process_id}: "
+        f"dispatching {total} step(s): {step_names}."
+    )
+
+    task_group = group(
+        execute_scatter_step.s(process_id, name, serialized_data)
+        for name in step_names
+    )
+    pending = task_group.apply_async()
+
+    poll_interval = 0.5
+    last_completed = 0
+    while not pending.ready():
+        completed = sum(1 for r in pending.results if r.ready())
+        if completed != last_completed:
+            last_completed = completed
+            pct = int((completed / total) * 90)
+            update_job_status(
+                job_id,
+                pct,
+                f"Completed {completed}/{total} parallel step(s).",
+                job_status,
+            )
+        time.sleep(poll_interval)
+
+    # Raises if any step failed — propagates to execute_process error handling
+    raw_results: list[dict] = pending.get()
+    named_results = dict(zip(step_names, raw_results))
+
+    logger.info(
+        f"All {total} step(s) for process {process_id} completed; merging results."
+    )
+    update_job_status(job_id, 90, "Merging scatter results.", job_status)
+
+    return service.merge_results(named_results)
+
+
 @celery_app.task(bind=True, name="fastprocesses.execute_process", base=CacheResultTask)
 def execute_process(self, process_id: str, serialized_data: str | bytes):
     def job_progress_callback(progress: int, message: str | None = None):
@@ -316,8 +418,13 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
         )
 
         if isinstance(service, BaseParallelProcess):
-            # Fan-out: split → N parallel subtasks → merge
+            # Data fan-out: split → N parallel subtasks (same op) → merge
             result = _run_parallel(
+                service, process_id, data, job_id, job_status
+            )
+        elif isinstance(service, BaseScatterProcess):
+            # Operation fan-out: N different steps on same input → merge
+            result = _run_scatter(
                 service, process_id, data, job_id, job_status
             )
         else:

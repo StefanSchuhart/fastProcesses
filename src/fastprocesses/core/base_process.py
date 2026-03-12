@@ -333,3 +333,143 @@ class BaseParallelProcess(BaseProcess, ABC):
                     partial = asyncio.run(_await())
             raw_results.append(partial.model_dump(exclude_none=True))
         return self.merge_results(raw_results)
+
+
+# ---------------------------------------------------------------------------
+# parallel_step decorator
+# ---------------------------------------------------------------------------
+
+def parallel_step(fn):
+    """
+    Marks a ``BaseScatterProcess`` method as a parallel step.
+
+    Each decorated method::
+
+        @parallel_step
+        def analyse_elevation(self, exec_body: dict) -> ElevationResult:
+            ...
+
+    - receives the **full** ``exec_body`` (same as ``execute`` would)
+    - runs on its **own Celery worker** concurrently with every other step
+    - must return a ``pydantic.BaseModel``
+
+    The step name used in ``merge_results`` is the method name.
+    """
+    fn._is_parallel_step = True
+    return fn
+
+
+def get_parallel_steps(
+    process: "BaseScatterProcess",
+) -> Dict[str, Any]:
+    """
+    Returns a ``{name: bound_method}`` mapping of all ``@parallel_step``
+    methods defined on *process*.
+
+    The ``_is_parallel_step`` flag is checked on the **class** MRO so that
+    ``patch.object`` (which replaces only the instance attribute) does not
+    hide decorated steps.  The bound method is still fetched from the instance
+    so that any active patch/wrap is called during execution.
+    """
+    step_names: List[str] = []
+    for cls in type(process).__mro__:
+        for name, attr in cls.__dict__.items():
+            if name not in step_names and getattr(attr, "_is_parallel_step", False):
+                step_names.append(name)
+
+    return {name: getattr(process, name) for name in step_names}
+
+
+# ---------------------------------------------------------------------------
+# BaseScatterProcess
+# ---------------------------------------------------------------------------
+
+class BaseScatterProcess(BaseProcess, ABC):
+    """
+    A ``BaseProcess`` variant for running **multiple different operations on
+    the same input** concurrently, then merging the results (scatter/gather).
+
+    Library users define one ``@parallel_step`` method per operation and one
+    ``merge_results`` method:
+
+    Example usage::
+
+        @register_process("geo_enrich")
+        class GeoEnrichProcess(BaseScatterProcess):
+            process_description = ProcessDescription.from_yaml("geo_enrich.yaml")
+
+            @parallel_step
+            def get_elevation(self, exec_body: dict) -> ElevationResult:
+                coords = exec_body["inputs"]["coordinates"]
+                return ElevationResult(value=lookup_elevation(coords))
+
+            @parallel_step
+            def get_land_use(self, exec_body: dict) -> LandUseResult:
+                coords = exec_body["inputs"]["coordinates"]
+                return LandUseResult(category=lookup_land_use(coords))
+
+            def merge_results(
+                self, results: dict[str, dict]
+            ) -> GeoEnrichResult:
+                # results keys match the method names
+                return GeoEnrichResult(
+                    elevation=results["get_elevation"]["value"],
+                    land_use=results["get_land_use"]["category"],
+                )
+
+    In production each ``@parallel_step`` is dispatched as an independent
+    Celery task so workers can run them genuinely in parallel.
+
+    Note:
+        When ``execute`` is called outside of a Celery worker (e.g. in unit
+        tests) the steps run serially in the order they are defined, so no
+        broker is required.
+    """
+
+    @abstractmethod
+    def merge_results(self, results: Dict[str, Any]) -> BaseModel:
+        """
+        Combine the results of all parallel steps into the final output.
+
+        Args:
+            results: ``{step_name: result_dict}`` mapping.  Each value is the
+                ``dict`` produced by serialising the ``BaseModel`` returned by
+                the corresponding ``@parallel_step`` method.
+
+        Returns:
+            The merged ``BaseModel`` to be stored as the job result.
+        """
+        ...
+
+    # ------------------------------------------------------------------
+    # Serial fallback used outside Celery (e.g. tests)
+    # ------------------------------------------------------------------
+
+    def execute(
+        self,
+        exec_body: Dict[str, Any],
+        job_progress_callback: JobProgressCallback | None = None,
+    ) -> BaseModel:
+        """
+        Serial fallback: runs each ``@parallel_step`` in definition order.
+
+        In production the Celery worker bypasses this and dispatchess one
+        ``execute_scatter_step`` task per step instead.
+        """
+        steps = get_parallel_steps(self)
+        if not steps:
+            raise NotImplementedError(
+                f"{self.__class__.__name__} defines no @parallel_step methods."
+            )
+        raw: Dict[str, Any] = {}
+        for name, method in steps.items():
+            partial = method(exec_body)
+            if inspect.isawaitable(partial):
+                if asyncio.iscoroutine(partial):
+                    partial = asyncio.run(partial)
+                else:
+                    async def _await(p=partial):
+                        return await p
+                    partial = asyncio.run(_await())
+            raw[name] = partial.model_dump(exclude_none=True)
+        return self.merge_results(raw)
