@@ -29,7 +29,11 @@ from fastprocesses.core.models import (
     ProcessOutputTransmission,
     Schema,
 )
-from fastprocesses.worker.celery_app import _run_scatter, execute_scatter_step
+from fastprocesses.worker.celery_app import (
+    _run_scatter,
+    execute_scatter_step,
+    finalize_scatter,
+)
 
 # ---------------------------------------------------------------------------
 # Partial result models (one per step)
@@ -121,6 +125,14 @@ EXEC_BODY = {"inputs": {"lat": 53.55, "lon": 10.0}}
 @pytest.fixture
 def process() -> BaseScatterProcess:
     return GeoEnrichProcess()
+
+
+@pytest.fixture
+def serialized_data():
+    """Minimal CalculationTask JSON — the same shape execute_process receives."""
+    return json.dumps(
+        {"inputs": EXEC_BODY["inputs"], "outputs": None, "response": "raw"}
+    )
 
 
 @pytest.fixture
@@ -232,35 +244,45 @@ def test_execute_scatter_step_unknown_step_raises(eager_celery, process):
             ).get()
 
 
-def test_run_scatter_fans_out_and_merges(eager_celery, process):
+def test_run_scatter_fans_out_and_merges(
+    eager_celery, process, serialized_data
+):
     """
-    _run_scatter dispatches one execute_scatter_step task per @parallel_step,
-    all receiving the same input, then merges results.
+    _run_scatter dispatches a chord: one execute_scatter_step per @parallel_step
+    + a finalize_scatter callback, all with the same input.  With
+    task_always_eager=True the chord runs synchronously, so finalize_scatter
+    has already stored the merged result in the cache by the time _run_scatter
+    returns.
     """
     with patch(
         "fastprocesses.worker.celery_app.get_process_registry"
     ) as mock_registry, patch(
         "fastprocesses.worker.celery_app.update_job_status"
-    ):
+    ), patch(
+        "fastprocesses.worker.celery_app.temp_result_cache"
+    ) as mock_cache:
         mock_registry.return_value.get_process.return_value = process
-        result = _run_scatter(
+        _run_scatter(
             service=process,
             process_id="geo_enrich",
             data=EXEC_BODY,
             job_id="test-job-scatter-1",
-            job_status="running",
+            serialized_data=serialized_data,
         )
 
-    assert isinstance(result, GeoEnrichResult)
-    assert result.elevation_m == 342.5
-    assert result.land_use == "forest"
-    assert result.temperature_c == 12.3
+    assert mock_cache.put.called
+    cached = mock_cache.put.call_args[1]["value"]
+    assert cached["elevation_m"] == 342.5
+    assert cached["land_use"] == "forest"
+    assert cached["temperature_c"] == 12.3
 
 
-def test_run_scatter_dispatches_one_subtask_per_step(eager_celery, process):
+def test_run_scatter_dispatches_one_subtask_per_step(
+    eager_celery, process, serialized_data
+):
     """
-    The number of subtasks in the Celery group equals the number of
-    @parallel_step methods — confirming each step gets its own worker slot.
+    The number of chord-header subtasks equals the number of @parallel_step
+    methods — confirming each step gets its own worker slot in production.
     """
     subtask_args: list[tuple] = []
     original_s = execute_scatter_step.s
@@ -273,6 +295,8 @@ def test_run_scatter_dispatches_one_subtask_per_step(eager_celery, process):
         "fastprocesses.worker.celery_app.get_process_registry"
     ) as mock_registry, patch(
         "fastprocesses.worker.celery_app.update_job_status"
+    ), patch(
+        "fastprocesses.worker.celery_app.temp_result_cache"
     ), patch.object(execute_scatter_step, "s", side_effect=recording_s):
         mock_registry.return_value.get_process.return_value = process
         _run_scatter(
@@ -280,12 +304,51 @@ def test_run_scatter_dispatches_one_subtask_per_step(eager_celery, process):
             process_id="geo_enrich",
             data=EXEC_BODY,
             job_id="test-job-scatter-2",
-            job_status="running",
+            serialized_data=serialized_data,
         )
 
     expected_steps = get_parallel_steps(process)
     assert len(subtask_args) == len(expected_steps)  # 3 steps → 3 subtasks
 
-    # Every call must pass the same serialised data (same input to all steps)
+    # Every step receives the same serialised input
     dispatched_data = [json.loads(args[2]) for args in subtask_args]
     assert all(d == EXEC_BODY for d in dispatched_data)
+
+
+def test_finalize_scatter_merges_and_caches(
+    eager_celery, process, serialized_data
+):
+    """
+    finalize_scatter is the chord callback.  Given the per-step results it
+    reassociates them with step names, calls merge_results, caches the output,
+    and marks the job as SUCCESSFUL.
+    """
+    step_results = [
+        {"value_m": 342.5},   # get_elevation
+        {"category": "forest"},  # get_land_use
+        {"celsius": 12.3},    # get_temperature
+    ]
+    step_names = ["get_elevation", "get_land_use", "get_temperature"]
+
+    with patch(
+        "fastprocesses.worker.celery_app.get_process_registry"
+    ) as mock_registry, patch(
+        "fastprocesses.worker.celery_app.update_job_status"
+    ) as mock_update, patch(
+        "fastprocesses.worker.celery_app.temp_result_cache"
+    ) as mock_cache:
+        mock_registry.return_value.get_process.return_value = process
+        merged = finalize_scatter(
+            step_results,
+            step_names,
+            "geo_enrich",
+            "test-job-scatter-3",
+            serialized_data,
+        )
+
+    assert merged["elevation_m"] == 342.5
+    assert merged["land_use"] == "forest"
+    assert merged["temperature_c"] == 12.3
+    assert mock_cache.put.called
+    last_status = mock_update.call_args_list[-1][0][3]
+    assert last_status == "successful"

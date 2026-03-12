@@ -24,7 +24,11 @@ from fastprocesses.core.models import (
     ProcessOutputTransmission,
     Schema,
 )
-from fastprocesses.worker.celery_app import _run_parallel, execute_parallel_item
+from fastprocesses.worker.celery_app import (
+    _run_parallel,
+    execute_parallel_item,
+    finalize_parallel,
+)
 
 # ---------------------------------------------------------------------------
 # Shared output model
@@ -103,6 +107,14 @@ def process():
 @pytest.fixture
 def exec_body():
     return {"inputs": {"words": WORDS}}
+
+
+@pytest.fixture
+def serialized_data(exec_body):
+    """Minimal CalculationTask JSON — the same shape execute_process receives."""
+    return json.dumps(
+        {"inputs": exec_body["inputs"], "outputs": None, "response": "raw"}
+    )
 
 
 @pytest.fixture
@@ -211,38 +223,44 @@ def test_execute_parallel_item_task(eager_celery, process):
     assert async_result.get() == {"words": ["FOO", "BAR", "BAZ"]}
 
 
-def test_run_parallel_fans_out_and_merges(eager_celery, process, exec_body):
+def test_run_parallel_fans_out_and_merges(
+    eager_celery, process, exec_body, serialized_data
+):
     """
-    _run_parallel splits the input, dispatches one execute_parallel_item
-    subtask per chunk via a Celery group, then pipes all partial results
-    through merge_results.
-
-    With task_always_eager=True the subtasks run synchronously in-process.
-    With real Celery workers (task_always_eager=False) they run concurrently
-    across as many workers as are available.
+    _run_parallel dispatches a chord: one execute_parallel_item subtask per
+    chunk + a finalize_parallel callback.  With task_always_eager=True the
+    entire chord runs synchronously, so by the time _run_parallel returns the
+    finalize_parallel callback has already executed and stored the merged
+    result in the cache.
     """
     with patch(
         "fastprocesses.worker.celery_app.get_process_registry"
     ) as mock_registry, patch(
         "fastprocesses.worker.celery_app.update_job_status"
-    ):
+    ), patch(
+        "fastprocesses.worker.celery_app.temp_result_cache"
+    ) as mock_cache:
         mock_registry.return_value.get_process.return_value = process
-        result = _run_parallel(
+        _run_parallel(
             service=process,
             process_id="batch_upper",
             data=exec_body,
             job_id="test-job-42",
-            job_status="running",
+            serialized_data=serialized_data,
         )
 
-    assert isinstance(result, WordBatch)
-    assert result.words == EXPECTED
+    # finalize_parallel ran synchronously and called temp_result_cache.put
+    assert mock_cache.put.called
+    cached = mock_cache.put.call_args[1]["value"]
+    assert cached["words"] == EXPECTED
 
 
-def test_run_parallel_dispatches_one_subtask_per_chunk(eager_celery, process, exec_body):
+def test_run_parallel_dispatches_one_subtask_per_chunk(
+    eager_celery, process, exec_body, serialized_data
+):
     """
-    The number of subtasks dispatched equals the number of chunks from
-    split_inputs — confirming that every chunk gets its own worker slot.
+    The number of chord-header subtasks equals the number of chunks —
+    confirming every chunk gets its own worker slot in production.
     """
     subtask_args: list[tuple] = []
     original_s = execute_parallel_item.s
@@ -255,6 +273,8 @@ def test_run_parallel_dispatches_one_subtask_per_chunk(eager_celery, process, ex
         "fastprocesses.worker.celery_app.get_process_registry"
     ) as mock_registry, patch(
         "fastprocesses.worker.celery_app.update_job_status"
+    ), patch(
+        "fastprocesses.worker.celery_app.temp_result_cache"
     ), patch.object(execute_parallel_item, "s", side_effect=recording_s):
         mock_registry.return_value.get_process.return_value = process
         _run_parallel(
@@ -262,8 +282,39 @@ def test_run_parallel_dispatches_one_subtask_per_chunk(eager_celery, process, ex
             process_id="batch_upper",
             data=exec_body,
             job_id="test-job-43",
-            job_status="running",
+            serialized_data=serialized_data,
         )
 
     expected_chunks = process.split_inputs(exec_body)
     assert len(subtask_args) == len(expected_chunks)  # 3 chunks → 3 subtasks
+
+
+def test_finalize_parallel_merges_and_caches(eager_celery, process, serialized_data):
+    """
+    finalize_parallel is the chord callback.  Given the partial results from
+    all execute_parallel_item tasks it merges them, caches the output, and
+    marks the job as SUCCESSFUL.
+    """
+    sub_results = [
+        {"words": ["ALPHA", "BETA", "GAMMA"]},
+        {"words": ["DELTA", "EPSILON", "ZETA"]},
+        {"words": ["ETA"]},
+    ]
+
+    with patch(
+        "fastprocesses.worker.celery_app.get_process_registry"
+    ) as mock_registry, patch(
+        "fastprocesses.worker.celery_app.update_job_status"
+    ) as mock_update, patch(
+        "fastprocesses.worker.celery_app.temp_result_cache"
+    ) as mock_cache:
+        mock_registry.return_value.get_process.return_value = process
+        merged = finalize_parallel(
+            sub_results, "batch_upper", "test-job-44", serialized_data
+        )
+
+    assert merged["words"] == EXPECTED
+    assert mock_cache.put.called
+    # Final status update must be SUCCESSFUL
+    last_status = mock_update.call_args_list[-1][0][3]
+    assert last_status == "successful"
