@@ -5,7 +5,12 @@ import uvicorn
 from pydantic import BaseModel
 
 from fastprocesses.api.server import OGCProcessesAPI
-from fastprocesses.core.base_process import BaseProcess
+from fastprocesses.core.base_process import (
+    BaseParallelProcess,
+    BaseProcess,
+    BaseScatterProcess,
+    parallel_step,
+)
 from fastprocesses.core.models import (
     ProcessDescription,
     ProcessInput,
@@ -147,6 +152,186 @@ class SimpleProcess_2(BaseProcess):
             job_progress_callback(90, "Preparing output")
 
         return output_model
+
+
+# =============================================================================
+# Example 3 — BaseParallelProcess (data fan-out)
+#
+# The same operation (upper-casing) is applied to independent chunks of the
+# input list.  Each chunk is dispatched as a separate Celery task, so N workers
+# process N chunks truly in parallel.  KEDA will scale the worker pool
+# automatically as the chunk tasks land in the Redis queue.
+#
+# Pattern:  split_inputs  →  execute_single × N workers  →  merge_results
+# =============================================================================
+
+
+class WordBatch(BaseModel):
+    words: list[str]
+
+
+@register_process("batch_upper_process")
+class BatchUpperProcess(BaseParallelProcess):
+    """
+    Accepts a list of words and returns them upper-cased.
+    The list is split into chunks of 3; each chunk runs on its own worker.
+    """
+
+    process_description = ProcessDescription(
+        id="batch_upper_process",
+        title="Batch Upper Process",
+        version="1.0.0",
+        description=(
+            "Upper-cases a list of words by processing fixed-size chunks in "
+            "parallel.  Illustrates BaseParallelProcess (data fan-out)."
+        ),
+        jobControlOptions=[
+            ProcessJobControlOptions.ASYNC_EXECUTE,
+        ],
+        outputTransmission=[ProcessOutputTransmission.VALUE],
+        inputs={
+            "words": ProcessInput(
+                title="Words",
+                description="List of words to upper-case",
+                schema=Schema(type="array", items={"type": "string"}),
+            )
+        },
+        outputs={
+            "words": ProcessOutput(
+                title="Upper-cased words",
+                description="Every word converted to upper case",
+                schema=Schema(type="array", items={"type": "string"}),
+            )
+        },
+        keywords=["text", "parallel"],
+    )
+
+    # --- 1. Partition the input into independent chunks ---
+
+    def split_inputs(self, exec_body: dict) -> list[dict]:
+        """Split the word list into chunks of 3.  Each chunk → one worker."""
+        words: list[str] = exec_body["inputs"]["words"]
+        chunk_size = 3
+        return [
+            {"inputs": {"words": words[i : i + chunk_size]}}
+            for i in range(0, len(words), chunk_size)
+        ]
+
+    # --- 2. Process one chunk (runs on a dedicated Celery worker) ---
+
+    def execute_single(
+        self,
+        item: dict,
+        job_progress_callback: JobProgressCallback | None = None,
+    ) -> WordBatch:
+        """Upper-case every word in a single chunk."""
+        return WordBatch(words=[w.upper() for w in item["inputs"]["words"]])
+
+    # --- 3. Stitch the partial results back together ---
+
+    def merge_results(self, results: list[dict]) -> WordBatch:
+        """Flatten the per-chunk results into one list, preserving order."""
+        return WordBatch(words=[w for chunk in results for w in chunk["words"]])
+
+
+# =============================================================================
+# Example 4 — BaseScatterProcess (operation fan-out / scatter-gather)
+#
+# Three *different* analyses run on the same input text, each on its own
+# Celery worker.  No chunking needed — the full input is broadcast to every
+# @parallel_step.  KEDA scales one worker per step.
+#
+# Pattern:  @parallel_step × N workers (same input)  →  merge_results
+# =============================================================================
+
+
+class WordCountResult(BaseModel):
+    count: int
+
+
+class CharCountResult(BaseModel):
+    count: int
+
+
+class UniqueWordsResult(BaseModel):
+    words: list[str]
+
+
+class TextAnalysisResult(BaseModel):
+    word_count: int
+    char_count: int
+    unique_words: list[str]
+
+
+@register_process("text_analysis_process")
+class TextAnalysisProcess(BaseScatterProcess):
+    """
+    Analyses a piece of text via three independent operations that run in
+    parallel on separate workers:
+
+      • count_words        — total word count
+      • count_chars        — character count (excluding spaces)
+      • extract_unique     — sorted list of unique lower-cased words
+
+    Illustrates BaseScatterProcess (operation fan-out / scatter-gather).
+    """
+
+    process_description = ProcessDescription(
+        id="text_analysis_process",
+        title="Text Analysis Process",
+        version="1.0.0",
+        description=(
+            "Runs three independent text analyses in parallel and merges the "
+            "results.  Illustrates BaseScatterProcess (operation fan-out)."
+        ),
+        jobControlOptions=[
+            ProcessJobControlOptions.ASYNC_EXECUTE,
+        ],
+        outputTransmission=[ProcessOutputTransmission.VALUE],
+        inputs={
+            "text": ProcessInput(
+                title="Text",
+                description="The text to analyse",
+                schema=Schema(type="string", minLength=1),
+            )
+        },
+        outputs={
+            "result": ProcessOutput(
+                title="Analysis result",
+                description="Combined word count, char count and unique words",
+                schema=Schema(type="object"),
+            )
+        },
+        keywords=["text", "analysis", "scatter"],
+    )
+
+    # --- Each @parallel_step receives the full exec_body and runs on its
+    #     own Celery worker.  The method name becomes the key in merge_results.
+
+    @parallel_step
+    def count_words(self, exec_body: dict) -> WordCountResult:
+        text: str = exec_body["inputs"]["text"]
+        return WordCountResult(count=len(text.split()))
+
+    @parallel_step
+    def count_chars(self, exec_body: dict) -> CharCountResult:
+        text: str = exec_body["inputs"]["text"]
+        return CharCountResult(count=len(text.replace(" ", "")))
+
+    @parallel_step
+    def extract_unique(self, exec_body: dict) -> UniqueWordsResult:
+        text: str = exec_body["inputs"]["text"]
+        return UniqueWordsResult(words=sorted({w.lower() for w in text.split()}))
+
+    # --- merge_results receives {step_name: result_dict} after all steps finish.
+
+    def merge_results(self, results: dict[str, dict]) -> TextAnalysisResult:
+        return TextAnalysisResult(
+            word_count=results["count_words"]["count"],
+            char_count=results["count_chars"]["count"],
+            unique_words=results["extract_unique"]["words"],
+        )
+
 
 # Create the FastAPI app
 app = OGCProcessesAPI(
