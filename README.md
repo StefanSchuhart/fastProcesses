@@ -19,6 +19,9 @@ fastprocesses is a Python library that provides a simple and efficient way to cr
 - **Output Handling**: Supports various output transmission modes (value, reference)
 - **Result Caching**: Built-in Redis-based caching for process results
 - **Celery Integration**: Asynchronous task processing using Celery
+- **Parallel Data Fan-out**: `BaseParallelProcess` — split a large input into chunks, process each chunk on a separate worker, then merge the results
+- **Parallel Operation Fan-out**: `BaseScatterProcess` + `@parallel_step` — run multiple independent operations on the same input concurrently, then merge the named results
+- **KEDA-compatible Parallelism**: Both parallel patterns use Celery chords — the orchestrating task returns immediately so workers do not block while waiting for sub-tasks
 - **Pydantic Models**: Strong type validation for process inputs and outputs
 - **Logging**: Uses `loguru` for modern logging with rotation support
 
@@ -47,11 +50,17 @@ graph TB
     subgraph Process
         BP[BaseProcess]
         SP[SimpleProcess]
+        BPP[BaseParallelProcess]
+        BSP[BaseScatterProcess]
     end
 
     subgraph Worker
         CW[Celery Worker]
         CT[CacheResultTask]
+        EPI[execute_parallel_item]
+        ESS[execute_scatter_step]
+        FP[finalize_parallel]
+        FS[finalize_scatter]
     end
 
     %% Client interactions
@@ -68,12 +77,26 @@ graph TB
     %% Process Registry
     PR -->|Store/Retrieve| RR
     PR -.->|Registers| SP
+    PR -.->|Registers| BPP
+    PR -.->|Registers| BSP
     SP -->|Inherits| BP
+    BPP -->|Inherits| BP
+    BSP -->|Inherits| BP
 
-    %% Worker flow
-    CW -->|Execute| SP
+    %% Worker flow — simple
+    CW -->|Execute simple| SP
     CW -->|Cache Result| CT
     CT -->|Store| RC
+
+    %% Worker flow — parallel (chord)
+    CW -->|Dispatch chord| EPI
+    EPI -->|Partial results| FP
+    FP -->|Store merged| RC
+
+    %% Worker flow — scatter (chord)
+    CW -->|Dispatch chord| ESS
+    ESS -->|Step results| FS
+    FS -->|Store merged| RC
 
     %% Styling
     classDef api fill:#f9f,stroke:#333,stroke-width:2px
@@ -83,8 +106,8 @@ graph TB
 
     class API,Router api
     class RC,RR cache
-    class BP,SP process
-    class CW,CT worker
+    class BP,SP,BPP,BSP process
+    class CW,CT,EPI,ESS,FP,FS worker
 ```
 
 ### Routes
@@ -157,6 +180,148 @@ graph TB
 ```
 
 ### Usage
+
+#### Parallel execution patterns
+
+In addition to the standard `BaseProcess`, the library ships two base classes for
+fan-out workloads.  Both patterns use a Celery **chord** internally: the
+orchestrating `execute_process` task returns immediately after dispatching the
+chord, so workers are never blocked while waiting for sub-tasks.  This makes
+both patterns fully compatible with KEDA autoscaling.
+
+##### `BaseParallelProcess` — data fan-out (split → map → merge)
+
+Use this when a single large input can be split into independent chunks, each
+processed by a separate worker, and the partial results merged into a final
+output.
+
+```python
+from fastprocesses.core.base_process import BaseParallelProcess
+from fastprocesses.processes.process_registry import register_process
+
+@register_process("batch_upper_process")
+class BatchUpperProcess(BaseParallelProcess):
+    process_description = ProcessDescription(
+        id="batch_upper_process",
+        title="Batch Upper",
+        version="1.0.0",
+        description="Upper-cases a list of words, processing chunks in parallel.",
+        jobControlOptions=[ProcessJobControlOptions.ASYNC_EXECUTE],
+        outputTransmission=[ProcessOutputTransmission.VALUE],
+        inputs={
+            "words": ProcessInput(
+                title="Words",
+                description="List of words to upper-case",
+                scheme=Schema(type="array", items={"type": "string"}),
+            )
+        },
+        outputs={
+            "words": ProcessOutput(
+                title="Words",
+                description="Upper-cased words",
+                scheme=Schema(type="array", items={"type": "string"}),
+            )
+        },
+    )
+
+    def split_inputs(self, exec_body: dict) -> list[dict]:
+        """Divide the word list into chunks of three."""
+        words = exec_body["inputs"]["words"]
+        chunk_size = 3
+        return [
+            {"inputs": {"words": words[i:i + chunk_size]}}
+            for i in range(0, len(words), chunk_size)
+        ]
+
+    def execute_single(self, item: dict, job_progress_callback=None):
+        """Process one chunk — called once per worker."""
+        return {"words": [w.upper() for w in item["inputs"]["words"]]}
+
+    def merge_results(self, results: list[dict]):
+        """Flatten all partial word lists into one."""
+        return {"words": [w for r in results for w in r["words"]]}
+```
+
+```bash
+# Async execution
+curl -s -X POST http://localhost:8000/processes/batch_upper_process/execution \
+  -H "Content-Type: application/json" \
+  -d '{"inputs": {"words": ["alpha","beta","gamma","delta","epsilon","zeta","eta"]},
+       "outputs": {"words": {}}, "mode": "async"}'
+```
+
+##### `BaseScatterProcess` — operation fan-out (`@parallel_step` → merge)
+
+Use this when the same input needs to be analysed by several independent
+operations simultaneously and the named results merged into a single output.
+Decorate each operation with `@parallel_step`.
+
+```python
+from fastprocesses.core.base_process import BaseScatterProcess, parallel_step
+from fastprocesses.processes.process_registry import register_process
+
+@register_process("text_analysis_process")
+class TextAnalysisProcess(BaseScatterProcess):
+    process_description = ProcessDescription(
+        id="text_analysis_process",
+        title="Text Analysis",
+        version="1.0.0",
+        description="Analyses text: word count, char count and unique words in parallel.",
+        jobControlOptions=[ProcessJobControlOptions.ASYNC_EXECUTE],
+        outputTransmission=[ProcessOutputTransmission.VALUE],
+        inputs={
+            "text": ProcessInput(
+                title="Text", description="Text to analyse",
+                scheme=Schema(type="string"),
+            )
+        },
+        outputs={
+            "word_count": ProcessOutput(
+                title="Word Count", description="Number of words",
+                scheme=Schema(type="integer"),
+            ),
+            "char_count": ProcessOutput(
+                title="Char Count", description="Number of characters",
+                scheme=Schema(type="integer"),
+            ),
+            "unique_words": ProcessOutput(
+                title="Unique Words", description="Sorted list of unique words",
+                scheme=Schema(type="array", items={"type": "string"}),
+            ),
+        },
+    )
+
+    @parallel_step
+    def count_words(self, exec_body: dict):
+        return {"word_count": len(exec_body["inputs"]["text"].split())}
+
+    @parallel_step
+    def count_chars(self, exec_body: dict):
+        return {"char_count": len(exec_body["inputs"]["text"])}
+
+    @parallel_step
+    def extract_unique(self, exec_body: dict):
+        words = exec_body["inputs"]["text"].lower().split()
+        return {"unique_words": sorted(set(words))}
+
+    def merge_results(self, results: dict[str, dict]):
+        return {
+            "word_count":  results["count_words"]["word_count"],
+            "char_count":  results["count_chars"]["char_count"],
+            "unique_words": results["extract_unique"]["unique_words"],
+        }
+```
+
+```bash
+# Async execution
+curl -s -X POST http://localhost:8000/processes/text_analysis_process/execution \
+  -H "Content-Type: application/json" \
+  -d '{"inputs": {"text": "the quick brown fox jumps over the lazy dog"},
+       "outputs": {"word_count": {}, "char_count": {}, "unique_words": {}},
+       "mode": "async"}'
+```
+
+---
 
 1. **Define a Process**: Create a new process by subclassing `BaseProcess` and using the `@register_process` decorator.
 
@@ -323,6 +488,7 @@ RESULTS_TEMP_TTL_HOURS=48 # this period determines how long results can be retri
 !IMPORTANT!: Cache hash key is based on original unprocessed inputs always. This ensures consistent caching and cache retrieval which does not depend on arbitrary processed data, which can change when the process is updated or changed!
 
 ### Version Notes
+- **0.16.0**: Added `BaseParallelProcess` (data fan-out) and `BaseScatterProcess` + `@parallel_step` (operation fan-out); both use Celery chords for non-blocking, KEDA-compatible parallel execution
 - **0.15.0**: Implemented redis retry mechanism
 - **0.14.0**: Renamed settings and allowed to add metadata to server app, added a html landing page
 - **0.13.0**: Validation occurs against schema fragment provided by process description
