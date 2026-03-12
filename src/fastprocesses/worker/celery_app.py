@@ -225,6 +225,9 @@ def finalize_parallel(
         try:
             calculation_task = CalculationTask(**json.loads(serialized_data))
             temp_result_cache.put(key=calculation_task.celery_key, value=merged)
+            # Also store under job_id so get_job_result can retrieve it when
+            # execute_process returned None (chord-dispatched tasks).
+            temp_result_cache.put(key=job_id, value=merged)
             logger.info(
                 f"Cached parallel result for process {process_id} (job {job_id})."
             )
@@ -355,6 +358,9 @@ def finalize_scatter(
         try:
             calculation_task = CalculationTask(**json.loads(serialized_data))
             temp_result_cache.put(key=calculation_task.celery_key, value=merged)
+            # Also store under job_id so get_job_result can retrieve it when
+            # execute_process returned None (chord-dispatched tasks).
+            temp_result_cache.put(key=job_id, value=merged)
             logger.info(
                 f"Cached scatter result for process {process_id} (job {job_id})."
             )

@@ -416,6 +416,20 @@ class ProcessManager:
             logger.info(f"Job ID {job_id} completed successfully")
 
         task_result: dict[str, Any] = result.result
+
+        # Chord-dispatched processes (BaseParallelProcess / BaseScatterProcess)
+        # have execute_process return None while the actual merged result is
+        # stored in temp_result_cache by the finalize_* callback task.  Fall
+        # back to that secondary key when the Celery result is None.
+        if task_result is None:
+            job_status_val = job_info.get("status") if job_info else None
+            if job_status_val == JobStatusCode.SUCCESSFUL:
+                task_result = self.cache.get(key=job_id)
+                if task_result is None:
+                    raise JobNotReadyError(job_id)
+            else:
+                raise JobNotReadyError(job_id)
+
         # in case of SUCCESS only, get the results directly (non-blocking)
         return task_result
 
