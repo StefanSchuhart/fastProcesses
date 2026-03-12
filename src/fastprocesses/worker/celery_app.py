@@ -1,11 +1,14 @@
 # worker/celery_app.py
+import asyncio
+import inspect
 import json
 import signal
+import time
 import traceback
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from celery import Task
+from celery import Task, group
 from celery.exceptions import SoftTimeLimitExceeded
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ValidationError
@@ -17,6 +20,7 @@ from fastprocesses.common import (
     sigterm_handler,
     temp_result_cache,
 )
+from fastprocesses.core.base_process import BaseParallelProcess
 from fastprocesses.core.exceptions import (
     InputValidationError,
     ProcessClassNotFoundError,
@@ -122,6 +126,93 @@ def update_job_status(
     logger.debug(f"Updated progress for job {job_id}: {progress}%, {message}")
 
 
+@celery_app.task(bind=True, name="fastprocesses.execute_parallel_item")
+def execute_parallel_item(self, process_id: str, serialized_item: str) -> dict:
+    """
+    Executes a single parallel work item for a ``BaseParallelProcess``.
+
+    This task is dispatched by the ``execute_process`` task (via a Celery
+    ``group``) when the target process is a ``BaseParallelProcess``.  It
+    calls ``execute_single`` on the process instance and returns the result
+    as a plain dict so that Celery can serialise it through the result backend.
+    """
+    item: dict = json.loads(serialized_item)
+    service = get_process_registry().get_process(process_id)
+
+    partial = service.execute_single(item)
+    if inspect.isawaitable(partial):
+        if asyncio.iscoroutine(partial):
+            partial = asyncio.run(partial)
+        else:
+            async def _await(p=partial):
+                return await p
+            partial = asyncio.run(_await())
+
+    return jsonable_encoder(partial)
+
+
+def _run_parallel(
+    service: BaseParallelProcess,
+    process_id: str,
+    data: dict,
+    job_id: str,
+    job_status: str,
+) -> BaseModel:
+    """
+    Orchestrates the fan-out/fan-in execution for a ``BaseParallelProcess``.
+
+    1. Splits the incoming ``data`` into independent work items via
+       ``service.split_inputs``.
+    2. Dispatches one ``execute_parallel_item`` Celery subtask per item.
+    3. Polls the group, reporting aggregate progress against the parent job.
+    4. Calls ``service.merge_results`` to produce the final ``BaseModel``.
+    """
+    items = service.split_inputs(data)
+    total = len(items)
+
+    if total == 0:
+        raise ValueError(
+            f"BaseParallelProcess.split_inputs returned an empty list "
+            f"for process '{process_id}'."
+        )
+
+    logger.info(
+        f"Parallel execution for process {process_id}: "
+        f"splitting into {total} subtask(s)."
+    )
+
+    task_group = group(
+        execute_parallel_item.s(process_id, json.dumps(item)) for item in items
+    )
+    pending = task_group.apply_async()
+
+    # Poll for completion, forwarding aggregate progress to the job status cache
+    poll_interval = 0.5  # seconds
+    last_completed = 0
+    while not pending.ready():
+        completed = sum(1 for r in pending.results if r.ready())
+        if completed != last_completed:
+            last_completed = completed
+            pct = int((completed / total) * 90)  # reserve last 10% for merge
+            update_job_status(
+                job_id,
+                pct,
+                f"Completed {completed}/{total} parallel subtask(s).",
+                job_status,
+            )
+        time.sleep(poll_interval)
+
+    # Raises if any subtask failed — propagates to the parent task's except block
+    sub_results: list[dict] = pending.get()
+
+    logger.info(
+        f"All {total} subtask(s) for process {process_id} completed; merging results."
+    )
+    update_job_status(job_id, 90, "Merging parallel results.", job_status)
+
+    return service.merge_results(sub_results)
+
+
 @celery_app.task(bind=True, name="fastprocesses.execute_process", base=CacheResultTask)
 def execute_process(self, process_id: str, serialized_data: str | bytes):
     def job_progress_callback(progress: int, message: str | None = None):
@@ -223,9 +314,16 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
             job_status,
             started=datetime.now(timezone.utc),
         )
-        result = service.run_execute(
-            data, job_progress_callback=job_progress_callback
-        )
+
+        if isinstance(service, BaseParallelProcess):
+            # Fan-out: split → N parallel subtasks → merge
+            result = _run_parallel(
+                service, process_id, data, job_id, job_status
+            )
+        else:
+            result = service.run_execute(
+                data, job_progress_callback=job_progress_callback
+            )
 
     except SoftTimeLimitExceeded as e:
         logger.warning(f"Task {job_id} hit the soft time limit: {e}")

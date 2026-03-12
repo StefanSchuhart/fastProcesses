@@ -1,7 +1,7 @@
 import asyncio
 import inspect
 from abc import ABC, abstractmethod
-from typing import Any, Awaitable, ClassVar, Dict
+from typing import Any, Awaitable, ClassVar, Dict, List
 
 from jsonschema import ValidationError as JSONSchemaValidationError
 from jsonschema import validate as jsonschema_validate
@@ -194,3 +194,142 @@ class BaseProcess(ABC):
         #         )
 
         return True
+
+
+class BaseParallelProcess(BaseProcess, ABC):
+    """
+    A ``BaseProcess`` variant that fans out work across multiple Celery workers
+    using a split → parallel execute → merge pattern.
+
+    Library users implement three methods:
+
+    1. ``split_inputs(exec_body)`` — partition the incoming request into N
+       independent work items.  Each item is a plain ``dict`` that will be
+       passed verbatim to ``execute_single``.
+
+    2. ``execute_single(item, job_progress_callback)`` — process **one** work
+       item.  This method is called on a dedicated Celery worker for every item
+       returned by ``split_inputs``.
+
+    3. ``merge_results(results)`` — fold the N partial results (returned as
+       ``dict`` objects after Celery serialisation) into the final ``BaseModel``
+       output.
+
+    Example usage::
+
+        @register_process("batch_upper")
+        class BatchUpperProcess(BaseParallelProcess):
+            process_description = ProcessDescription.from_yaml("batch_upper.yaml")
+
+            def split_inputs(self, exec_body: dict) -> list[dict]:
+                words = exec_body["inputs"]["words"]
+                chunk_size = 10
+                return [
+                    {"inputs": {"words": words[i : i + chunk_size]}}
+                    for i in range(0, len(words), chunk_size)
+                ]
+
+            def execute_single(
+                self, item: dict, job_progress_callback=None
+            ) -> BatchResult:
+                words = item["inputs"]["words"]
+                return BatchResult(upper=[w.upper() for w in words])
+
+            def merge_results(self, results: list[dict]) -> BatchResult:
+                combined = [word for r in results for word in r["upper"]]
+                return BatchResult(upper=combined)
+
+    The orchestration (Celery ``group`` dispatch, progress reporting, and result
+    collection) is handled entirely by the library — users never interact with
+    Celery primitives directly.
+
+    Note:
+        When ``execute`` is called **outside** of a Celery worker (e.g. in unit
+        tests), the default implementation runs ``execute_single`` serially so
+        that no broker is required.
+    """
+
+    @abstractmethod
+    def split_inputs(self, exec_body: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Partition the execution body into N independent work items.
+
+        Args:
+            exec_body: The full execution request body (same structure as the
+                ``exec_body`` received by ``execute``).
+
+        Returns:
+            A list of dicts, one per parallel work item.  Each dict is passed
+            as-is to ``execute_single`` on a separate Celery worker.
+        """
+        ...
+
+    @abstractmethod
+    def execute_single(
+        self,
+        item: Dict[str, Any],
+        job_progress_callback: JobProgressCallback | None = None,
+    ) -> BaseModel:
+        """
+        Process a single work item.
+
+        This method is invoked on a dedicated Celery worker for each item
+        produced by ``split_inputs``.
+
+        Args:
+            item: One element from the list returned by ``split_inputs``.
+            job_progress_callback: Optional progress callback (may be ``None``
+                when called from a subtask context).
+
+        Returns:
+            A ``BaseModel`` instance representing the partial result.
+        """
+        ...
+
+    @abstractmethod
+    def merge_results(self, results: List[Dict[str, Any]]) -> BaseModel:
+        """
+        Combine N partial results into the final output.
+
+        Args:
+            results: List of partial results.  Each element is the ``dict``
+                produced by serialising the ``BaseModel`` returned from
+                ``execute_single`` (i.e. the output of ``model.model_dump()``).
+
+        Returns:
+            The merged ``BaseModel`` to be stored as the job result.
+        """
+        ...
+
+    # ------------------------------------------------------------------
+    # Default execute() — serial fallback used outside Celery (e.g. tests)
+    # The Celery worker overrides this behaviour by dispatching a group of
+    # execute_parallel_item subtasks when it detects a BaseParallelProcess.
+    # ------------------------------------------------------------------
+
+    def execute(
+        self,
+        exec_body: Dict[str, Any],
+        job_progress_callback: JobProgressCallback | None = None,
+    ) -> BaseModel:
+        """
+        Serial fallback: runs ``execute_single`` for each item in sequence.
+
+        In production the Celery worker bypasses this method and fans out
+        ``execute_single`` calls across multiple workers instead.  This
+        implementation is retained so that ``BaseParallelProcess`` subclasses
+        work correctly in unit tests without a running broker.
+        """
+        items = self.split_inputs(exec_body)
+        raw_results: List[Dict[str, Any]] = []
+        for item in items:
+            partial = self.execute_single(item, job_progress_callback)
+            if inspect.isawaitable(partial):
+                if asyncio.iscoroutine(partial):
+                    partial = asyncio.run(partial)
+                else:
+                    async def _await(p=partial):
+                        return await p
+                    partial = asyncio.run(_await())
+            raw_results.append(partial.model_dump(exclude_none=True))
+        return self.merge_results(raw_results)
