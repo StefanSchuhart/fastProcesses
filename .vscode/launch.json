@@ -5,15 +5,15 @@
     "version": "0.2.0",
     "compounds": [
         {
-            "name": "api+worker",
-            "configurations": ["Api", "Worker"],
+            "name": "example+worker",
+            "configurations": ["example-Api", "Worker"],
             "stopAll": true,
             "preLaunchTask": "start-redis-container"
         }
     ],
     "configurations": [
         {
-            "name": "Api",
+            "name": "example-Api",
             "type": "debugpy",
             "request": "launch",
             "module": "uvicorn",
