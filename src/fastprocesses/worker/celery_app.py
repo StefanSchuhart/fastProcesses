@@ -3,12 +3,11 @@ import asyncio
 import inspect
 import json
 import signal
-import time
 import traceback
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from celery import Task, group
+from celery import Task, chord, group
 from celery.exceptions import SoftTimeLimitExceeded
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ValidationError
@@ -50,6 +49,10 @@ signal.signal(signal.SIGINT, sigint_handler)
 
 class CacheResultTask(Task):
     def on_success(self, retval: dict | BaseModel, task_id, args, kwargs):
+        if retval is None:
+            # Parallel/scatter execute_process tasks return None after dispatching
+            # a chord; the finalize_* callback task handles caching instead.
+            return
         try:
             # Deserialize the original data
             original_data = json.loads(args[1])
@@ -160,16 +163,20 @@ def _run_parallel(
     process_id: str,
     data: dict,
     job_id: str,
-    job_status: str,
-) -> BaseModel:
+    serialized_data: str,
+) -> None:
     """
-    Orchestrates the fan-out/fan-in execution for a ``BaseParallelProcess``.
+    Dispatches a Celery chord for a ``BaseParallelProcess`` and returns
+    immediately — no blocking poll.
 
-    1. Splits the incoming ``data`` into independent work items via
-       ``service.split_inputs``.
-    2. Dispatches one ``execute_parallel_item`` Celery subtask per item.
-    3. Polls the group, reporting aggregate progress against the parent job.
-    4. Calls ``service.merge_results`` to produce the final ``BaseModel``.
+    The chord header contains one ``execute_parallel_item`` task per item
+    returned by ``split_inputs``.  Once all header tasks have completed the
+    chord automatically triggers ``finalize_parallel``, which merges the
+    results, updates the job status, and caches the final output.
+
+    Because this function returns before any subtask runs, the parent
+    ``execute_process`` worker slot is freed instantly.  This is compatible
+    with ``worker_prefetch_multiplier=1`` and KEDA autoscaling.
     """
     items = service.split_inputs(data)
     total = len(items)
@@ -181,40 +188,65 @@ def _run_parallel(
         )
 
     logger.info(
-        f"Parallel execution for process {process_id}: "
-        f"splitting into {total} subtask(s)."
+        f"Dispatching parallel chord for process {process_id}: "
+        f"{total} subtask(s)."
     )
 
-    task_group = group(
-        execute_parallel_item.s(process_id, json.dumps(item)) for item in items
-    )
-    pending = task_group.apply_async()
+    chord(
+        [execute_parallel_item.s(process_id, json.dumps(item)) for item in items]
+    )(finalize_parallel.s(process_id, job_id, serialized_data))
 
-    # Poll for completion, forwarding aggregate progress to the job status cache
-    poll_interval = 0.5  # seconds
-    last_completed = 0
-    while not pending.ready():
-        completed = sum(1 for r in pending.results if r.ready())
-        if completed != last_completed:
-            last_completed = completed
-            pct = int((completed / total) * 90)  # reserve last 10% for merge
-            update_job_status(
-                job_id,
-                pct,
-                f"Completed {completed}/{total} parallel subtask(s).",
-                job_status,
+
+@celery_app.task(name="fastprocesses.finalize_parallel")
+def finalize_parallel(
+    sub_results: list[dict],
+    process_id: str,
+    job_id: str,
+    serialized_data: str,
+) -> dict:
+    """
+    Chord callback for ``BaseParallelProcess``.
+
+    Receives the ordered list of partial results produced by the chord header
+    (one dict per ``execute_parallel_item`` task), then:
+
+    1. Calls ``service.merge_results`` to produce the final output.
+    2. Caches the merged result under the same key used by ``CacheResultTask``.
+    3. Updates the job status to SUCCESSFUL (or FAILED on error).
+    """
+    service = get_process_registry().get_process(process_id)
+    try:
+        update_job_status(
+            job_id, 95, "Merging parallel results.", JobStatusCode.RUNNING
+        )
+        result = service.merge_results(sub_results)
+        merged = jsonable_encoder(result)
+
+        try:
+            calculation_task = CalculationTask(**json.loads(serialized_data))
+            temp_result_cache.put(key=calculation_task.celery_key, value=merged)
+            logger.info(
+                f"Cached parallel result for process {process_id} (job {job_id})."
             )
-        time.sleep(poll_interval)
+        except Exception as cache_err:
+            logger.error(
+                f"Failed to cache parallel result for job {job_id}: {cache_err}"
+            )
 
-    # Raises if any subtask failed — propagates to the parent task's except block
-    sub_results: list[dict] = pending.get()
-
-    logger.info(
-        f"All {total} subtask(s) for process {process_id} completed; merging results."
-    )
-    update_job_status(job_id, 90, "Merging parallel results.", job_status)
-
-    return service.merge_results(sub_results)
+        update_job_status(
+            job_id, 100, "Process completed.", JobStatusCode.SUCCESSFUL
+        )
+        logger.info(
+            f"Parallel process {process_id} (job {job_id}) completed successfully."
+        )
+        return merged
+    except Exception as e:
+        update_job_status(job_id, 0, str(e), JobStatusCode.FAILED)
+        logger.error(
+            f"Parallel finalization failed for process {process_id} "
+            f"(job {job_id}): {e}"
+        )
+        raise
 
 
 @celery_app.task(bind=True, name="fastprocesses.execute_scatter_step")
@@ -256,16 +288,17 @@ def _run_scatter(
     process_id: str,
     data: dict,
     job_id: str,
-    job_status: str,
-) -> BaseModel:
+    serialized_data: str,
+) -> None:
     """
-    Orchestrates the scatter/gather execution for a ``BaseScatterProcess``.
+    Dispatches a Celery chord for a ``BaseScatterProcess`` and returns
+    immediately — no blocking poll.
 
-    1. Discovers all ``@parallel_step`` methods on *service*.
-    2. Dispatches one ``execute_scatter_step`` Celery task per step, all
-       receiving the **same** serialised *data*.
-    3. Polls the group, reporting aggregate progress against the parent job.
-    4. Calls ``service.merge_results({step_name: result_dict, ...})``.
+    The chord header contains one ``execute_scatter_step`` task per
+    ``@parallel_step`` method, all receiving the *same* serialised *data*.
+    Once all steps have completed the chord triggers ``finalize_scatter``,
+    which merges the named results, updates the job status, and caches the
+    final output.
     """
     steps = get_parallel_steps(service)
     if not steps:
@@ -275,44 +308,75 @@ def _run_scatter(
 
     step_names = list(steps)
     total = len(step_names)
-    serialized_data = json.dumps(data)
+    serialized_input = json.dumps(data)
 
     logger.info(
-        f"Scatter execution for process {process_id}: "
-        f"dispatching {total} step(s): {step_names}."
+        f"Dispatching scatter chord for process {process_id}: "
+        f"{total} step(s): {step_names}."
     )
 
-    task_group = group(
-        execute_scatter_step.s(process_id, name, serialized_data)
-        for name in step_names
-    )
-    pending = task_group.apply_async()
+    chord(
+        [
+            execute_scatter_step.s(process_id, name, serialized_input)
+            for name in step_names
+        ]
+    )(finalize_scatter.s(step_names, process_id, job_id, serialized_data))
 
-    poll_interval = 0.5
-    last_completed = 0
-    while not pending.ready():
-        completed = sum(1 for r in pending.results if r.ready())
-        if completed != last_completed:
-            last_completed = completed
-            pct = int((completed / total) * 90)
-            update_job_status(
-                job_id,
-                pct,
-                f"Completed {completed}/{total} parallel step(s).",
-                job_status,
+
+@celery_app.task(name="fastprocesses.finalize_scatter")
+def finalize_scatter(
+    step_results: list[dict],
+    step_names: list[str],
+    process_id: str,
+    job_id: str,
+    serialized_data: str,
+) -> dict:
+    """
+    Chord callback for ``BaseScatterProcess``.
+
+    Receives the ordered list of per-step results produced by the chord header
+    (one dict per ``execute_scatter_step`` task), re-associates them with
+    their step names, then:
+
+    1. Calls ``service.merge_results({step_name: result_dict, ...})``.
+    2. Caches the merged result under the same key used by ``CacheResultTask``.
+    3. Updates the job status to SUCCESSFUL (or FAILED on error).
+    """
+    service = get_process_registry().get_process(process_id)
+    try:
+        named_results = dict(zip(step_names, step_results))
+
+        update_job_status(
+            job_id, 95, "Merging scatter results.", JobStatusCode.RUNNING
+        )
+        result = service.merge_results(named_results)
+        merged = jsonable_encoder(result)
+
+        try:
+            calculation_task = CalculationTask(**json.loads(serialized_data))
+            temp_result_cache.put(key=calculation_task.celery_key, value=merged)
+            logger.info(
+                f"Cached scatter result for process {process_id} (job {job_id})."
             )
-        time.sleep(poll_interval)
+        except Exception as cache_err:
+            logger.error(
+                f"Failed to cache scatter result for job {job_id}: {cache_err}"
+            )
 
-    # Raises if any step failed — propagates to execute_process error handling
-    raw_results: list[dict] = pending.get()
-    named_results = dict(zip(step_names, raw_results))
-
-    logger.info(
-        f"All {total} step(s) for process {process_id} completed; merging results."
-    )
-    update_job_status(job_id, 90, "Merging scatter results.", job_status)
-
-    return service.merge_results(named_results)
+        update_job_status(
+            job_id, 100, "Process completed.", JobStatusCode.SUCCESSFUL
+        )
+        logger.info(
+            f"Scatter process {process_id} (job {job_id}) completed successfully."
+        )
+        return merged
+    except Exception as e:
+        update_job_status(job_id, 0, str(e), JobStatusCode.FAILED)
+        logger.error(
+            f"Scatter finalization failed for process {process_id} "
+            f"(job {job_id}): {e}"
+        )
+        raise
 
 
 @celery_app.task(bind=True, name="fastprocesses.execute_process", base=CacheResultTask)
@@ -357,6 +421,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
         job_status_cache.put(job_key, job_info)
         logger.debug(f"Updated progress for job {job_id}: {progress}%, {message}")
 
+    chord_dispatched = False  # True when a parallel/scatter chord is dispatched
     result = None
     job_status = JobStatusCode.RUNNING
     job_message = ""
@@ -418,15 +483,15 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
         )
 
         if isinstance(service, BaseParallelProcess):
-            # Data fan-out: split → N parallel subtasks (same op) → merge
-            result = _run_parallel(
-                service, process_id, data, job_id, job_status
-            )
+            # Data fan-out: split → N parallel subtasks (same op) → merge.
+            # Chord dispatched; this task returns immediately.
+            _run_parallel(service, process_id, data, job_id, serialized_data)
+            chord_dispatched = True
         elif isinstance(service, BaseScatterProcess):
-            # Operation fan-out: N different steps on same input → merge
-            result = _run_scatter(
-                service, process_id, data, job_id, job_status
-            )
+            # Operation fan-out: N different steps on same input → merge.
+            # Chord dispatched; this task returns immediately.
+            _run_scatter(service, process_id, data, job_id, serialized_data)
+            chord_dispatched = True
         else:
             result = service.run_execute(
                 data, job_progress_callback=job_progress_callback
@@ -434,6 +499,8 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
 
     except SoftTimeLimitExceeded as e:
         logger.warning(f"Task {job_id} hit the soft time limit: {e}")
+        if chord_dispatched:
+            raise  # chord tasks are independent; cannot resume here
         # Attempt to resume the process
         try:
             result = service.run_execute(
@@ -479,6 +546,10 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
         )
 
     finally:
+        if chord_dispatched:
+            # finalize_parallel / finalize_scatter handles status + caching.
+            return None
+
         if result:
             result_dump = jsonable_encoder(result)
             logger.info(
