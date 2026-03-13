@@ -50,3 +50,10 @@ class ProcessClassNotFoundError(FastProcessesError):
 
     def __init__(self, process_class: str):
         super().__init__(f"Process class {process_class} not found")
+
+
+class BrokerUnavailableError(FastProcessesError):
+    """Raised when the Celery broker (Redis) cannot be reached."""
+
+    def __init__(self, detail: str):
+        super().__init__(f"Broker unavailable: {detail}")
