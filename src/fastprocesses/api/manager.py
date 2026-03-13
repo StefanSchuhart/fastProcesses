@@ -260,6 +260,39 @@ class ProcessManager:
         self.cache = temp_result_cache
         self.job_status_cache = job_status_cache
 
+    def get_worker_status(self) -> Dict[str, Any]:
+        """Return basic Celery worker status derived from broker inspect.
+
+        This is primarily intended for API health/diagnostics endpoints so
+        external systems (or operators) can see whether any workers are
+        currently online and how many tasks they report as active/reserved.
+        """
+
+        try:
+            inspector = self.celery_app.control.inspect(timeout=1.0)
+        except kombu.exceptions.OperationalError as exc:
+            logger.error(
+                "Celery worker status check failed due to broker error: %s",
+                exc,
+            )
+            raise BrokerUnavailableError(str(exc)) from exc
+
+        if inspector is None:
+            # No response from any workers; treat as zero-online but not fatal.
+            return {"workers_online": 0, "stats": {}, "active": {}, "reserved": {}}
+
+        stats = inspector.stats() or {}
+        active = inspector.active() or {}
+        reserved = inspector.reserved() or {}
+
+        # Only expose lightweight aggregates by default; raw stats may be large.
+        return {
+            "workers_online": len(stats),
+            "active": {name: len(tasks or []) for name, tasks in active.items()},
+            "reserved": {name: len(tasks or []) for name, tasks in reserved.items()},
+            "stats": stats,
+        }
+
     def get_available_processes(
         self, limit: int, offset: int
     ) -> Tuple[List[ProcessDescription], str | None]:
