@@ -66,6 +66,37 @@ def get_router(
                 },
             )
 
+    @router.get("/health/worker", tags=["Health"])
+    async def worker_health():
+        """Worker health probe: inspects Celery to see if workers are online.
+
+        This endpoint is useful with KEDA-style autoscaling where workers may
+        be scaled to zero. It reports how many workers are currently visible
+        to Celery and returns 503 when none are online or when the broker is
+        unreachable.
+        """
+
+        try:
+            worker_status = process_manager.get_worker_status()
+        except BrokerUnavailableError as exc:  # pragma: no cover - defensive path
+            logger.error("Worker health check failed due to broker error: %s", exc)
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={
+                    "status": "unready",
+                    "reason": "broker_unreachable",
+                    "workers_online": 0,
+                },
+            )
+
+        http_status = (
+            status.HTTP_200_OK
+            if worker_status.get("workers_online", 0) > 0
+            else status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+
+        return JSONResponse(status_code=http_status, content=worker_status)
+
     @router.get("/conformance")
     async def conformance() -> Conformance:
         logger.debug("Conformance endpoint accessed")
