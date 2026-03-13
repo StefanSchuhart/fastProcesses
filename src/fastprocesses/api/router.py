@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from fastprocesses.api.manager import ProcessManager
 from fastprocesses.common import job_status_cache
 from fastprocesses.core.exceptions import (
+    BrokerUnavailableError,
     InputValidationError,
     JobFailedError,
     JobNotFoundError,
@@ -218,6 +219,27 @@ def get_router(
 
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail=exception
+            )
+
+        except BrokerUnavailableError as e:
+            logger.error(
+                f"Broker unavailable when executing process {process_id}: {e}"
+            )
+            exception = OGCExceptionResponse(
+                type=(
+                    "http://www.opengis.net/def/exceptions/"
+                    "ogcapi-processes-1/1.0/server-error"
+                ),
+                title="Service Unavailable",
+                status=503,
+                detail=(
+                    "The task broker is currently unreachable. "
+                    "Please try again later."
+                ),
+                instance=f"/processes/{process_id}/execution",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exception
             )
 
     @router.get("/jobs", response_model_exclude_none=True, response_model=JobList)

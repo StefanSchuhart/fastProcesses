@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
 import celery.exceptions
+import kombu.exceptions
 from celery.result import AsyncResult
 
 from fastprocesses.common import (
@@ -15,6 +16,7 @@ from fastprocesses.common import (
 )
 from fastprocesses.core import config
 from fastprocesses.core.exceptions import (
+    BrokerUnavailableError,
     InputValidationError,
     JobFailedError,
     JobNotFoundError,
@@ -79,9 +81,17 @@ class AsyncExecutionStrategy(ExecutionStrategy):
 
         # Submit task to Celery worker queue for background processing
         send_start = time.monotonic()
-        task = self.process_manager.celery_app.send_task(
-            "fastprocesses.execute_process", args=[process_id, serialized_data]
-        )
+        try:
+            task = self.process_manager.celery_app.send_task(
+                "fastprocesses.execute_process", args=[process_id, serialized_data]
+            )
+        except kombu.exceptions.OperationalError as exc:
+            logger.error(
+                "Broker unavailable when submitting async task for process_id=%s: %s",
+                process_id,
+                exc,
+            )
+            raise BrokerUnavailableError(str(exc)) from exc
         send_elapsed = time.monotonic() - send_start
         if send_elapsed > 1.0:
             logger.warning(
@@ -136,9 +146,17 @@ class SyncExecutionStrategy(ExecutionStrategy):
             calculation_task.model_dump(include={"inputs", "outputs", "response"})
         )
         send_start = time.monotonic()
-        task = self.process_manager.celery_app.send_task(
-            "fastprocesses.execute_process", args=[process_id, serialized_data]
-        )
+        try:
+            task = self.process_manager.celery_app.send_task(
+                "fastprocesses.execute_process", args=[process_id, serialized_data]
+            )
+        except kombu.exceptions.OperationalError as exc:
+            logger.error(
+                "Broker unavailable when submitting sync task for process_id=%s: %s",
+                process_id,
+                exc,
+            )
+            raise BrokerUnavailableError(str(exc)) from exc
         send_elapsed = time.monotonic() - send_start
         if send_elapsed > 1.0:
             logger.warning(
