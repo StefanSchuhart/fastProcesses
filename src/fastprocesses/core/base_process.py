@@ -6,7 +6,9 @@ from typing import Any, Awaitable, ClassVar, Dict, List
 from jsonschema import ValidationError as JSONSchemaValidationError
 from jsonschema import validate as jsonschema_validate
 from pydantic import BaseModel
+from referencing.exceptions import Unresolvable as _UnresolvableRef
 
+from fastprocesses.core.logging import logger
 from fastprocesses.core.models import OutputControl, ProcessDescription
 from fastprocesses.core.types import JobProgressCallback
 
@@ -133,6 +135,25 @@ class BaseProcess(ABC):
                     f"Input '{input_name}' validation failed: {e.message}. "
                     f"Description: {input_desc.scheme.model_dump(exclude_unset=True)}"
                 )
+            except Exception as e:
+                # jsonschema wraps referencing.exceptions.Unresolvable as
+                # _WrappedReferencingError when a remote $ref cannot be fetched
+                # (e.g. SSL failures, network restrictions inside workers).
+                # Rather than crashing the job, log a warning and skip
+                # schema validation for this input so execution can proceed.
+                cause = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+                is_unresolvable = isinstance(e, _UnresolvableRef) or isinstance(
+                    cause, _UnresolvableRef
+                )
+                if is_unresolvable:
+                    logger.warning(
+                        "Remote $ref for input '%s' could not be resolved (%s). "
+                        "Skipping schema validation for this input and proceeding.",
+                        input_name,
+                        e,
+                    )
+                else:
+                    raise
 
         # Then, check for missing required inputs
         for input_name, input_desc in required_inputs.items():
