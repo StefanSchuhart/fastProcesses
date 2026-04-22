@@ -348,11 +348,12 @@ def finalize_scatter(
     service = get_process_registry().get_process(process_id)
     try:
         named_results = dict(zip(step_names, step_results))
+        exec_body: dict = json.loads(serialized_data)
 
         update_job_status(
             job_id, 95, "Merging scatter results.", JobStatusCode.RUNNING
         )
-        result = service.merge_results(named_results)
+        result = service.merge_results(named_results, exec_body)
         merged = jsonable_encoder(result)
 
         try:

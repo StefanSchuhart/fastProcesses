@@ -430,9 +430,10 @@ class BaseScatterProcess(BaseProcess, ABC):
                 return LandUseResult(category=lookup_land_use(coords))
 
             def merge_results(
-                self, results: dict[str, dict]
+                self, results: dict[str, dict], exec_body: dict
             ) -> GeoEnrichResult:
-                # results keys match the method names
+                # results keys match the method names; exec_body holds the
+                # original inputs in case the merge step needs them.
                 return GeoEnrichResult(
                     elevation=results["get_elevation"]["value"],
                     land_use=results["get_land_use"]["category"],
@@ -448,7 +449,7 @@ class BaseScatterProcess(BaseProcess, ABC):
     """
 
     @abstractmethod
-    def merge_results(self, results: Dict[str, Any]) -> BaseModel:
+    def merge_results(self, results: Dict[str, Any], exec_body: Dict[str, Any]) -> BaseModel:
         """
         Combine the results of all parallel steps into the final output.
 
@@ -456,6 +457,11 @@ class BaseScatterProcess(BaseProcess, ABC):
             results: ``{step_name: result_dict}`` mapping.  Each value is the
                 ``dict`` produced by serialising the ``BaseModel`` returned by
                 the corresponding ``@parallel_step`` method.
+            exec_body: The original ``exec_body`` dict that was passed to each
+                ``@parallel_step``.  Useful when the merge step needs access
+                to the raw inputs (e.g. to reconstruct GeoJSON features or
+                validate parameters) without smuggling data through step
+                results.
 
         Returns:
             The merged ``BaseModel`` to be stored as the job result.
@@ -493,4 +499,4 @@ class BaseScatterProcess(BaseProcess, ABC):
                         return await p
                     partial = asyncio.run(_await())
             raw[name] = partial.model_dump(exclude_none=True)
-        return self.merge_results(raw)
+        return self.merge_results(raw, exec_body)

@@ -107,7 +107,7 @@ class GeoEnrichProcess(BaseScatterProcess):
     def get_temperature(self, exec_body: dict) -> TemperatureResult:
         return TemperatureResult(celsius=12.3)
 
-    def merge_results(self, results: dict[str, dict]) -> GeoEnrichResult:
+    def merge_results(self, results: dict[str, dict], exec_body: dict) -> GeoEnrichResult:
         return GeoEnrichResult(
             elevation_m=results["get_elevation"]["value_m"],
             land_use=results["get_land_use"]["category"],

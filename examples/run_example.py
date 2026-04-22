@@ -402,9 +402,10 @@ class TextAnalysisProcess(BaseScatterProcess):
         text: str = exec_body["inputs"]["text"]
         return UniqueWordsResult(words=sorted({w.lower() for w in text.split()}))
 
-    # --- merge_results receives {step_name: result_dict} after all steps finish.
+    # --- merge_results receives {step_name: result_dict} and the original
+    #     exec_body after all steps finish.
 
-    def merge_results(self, results: dict[str, dict]) -> TextAnalysisResult:
+    def merge_results(self, results: dict[str, dict], exec_body: dict) -> TextAnalysisResult:
         return TextAnalysisResult(
             word_count=results["count_words"]["count"],
             char_count=results["count_chars"]["count"],
