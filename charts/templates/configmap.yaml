@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "fastprocesses.fullname" . }}
+  labels:
+    {{- include "fastprocesses.labels" . | nindent 4 }}
+data:
+  FP_API_TITLE: {{ .Values.config.apiTitle | quote }}
+  FP_API_DESCRIPTION: {{ .Values.config.apiDescription | quote }}
+  FP_RESULT_CACHE_HOST: {{ .Values.config.resultCache.host | quote }}
+  FP_RESULT_CACHE_PORT: {{ .Values.config.resultCache.port | quote }}
+  FP_RESULT_CACHE_DB: {{ .Values.config.resultCache.db | quote }}
+  FP_CELERY_BROKER_HOST: {{ .Values.config.celery.brokerHost | quote }}
+  FP_CELERY_BROKER_PORT: {{ .Values.config.celery.brokerPort | quote }}
+  FP_CELERY_BROKER_DB: {{ .Values.config.celery.brokerDb | quote }}
+  FP_CELERY_RESULTS_TTL_DAYS: {{ .Values.config.celery.resultsTtlDays | quote }}
+  FP_CELERY_TASK_TLIMIT_HARD: {{ .Values.config.celery.taskTlimitHard | quote }}
+  FP_CELERY_TASK_TLIMIT_SOFT: {{ .Values.config.celery.taskTlimitSoft | quote }}
+  FP_RESULTS_TEMP_TTL_HOURS: {{ .Values.config.resultCache.resultsTempTtlHours | quote }}
+  FP_JOB_STATUS_TTL_DAYS: {{ .Values.config.celery.jobStatusTtlDays | quote }}
+  FP_SYNC_EXECUTION_TIMEOUT_SECONDS: {{ .Values.config.syncExecutionTimeoutSeconds | quote }}
+  FP_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  FP_CELERY_JOB_MODE: {{ (or .Values.autoscaling.worker.keda.useScaledJob .Values.config.celery.jobMode) | quote }}
+  FP_CLEAR_REGISTRY_ON_STARTUP: {{ .Values.api.clearRegistryOnStartup | quote }}
+  {{- range $key, $val := .Values.config.extraConfigMapData }}
+  {{ $key }}: {{ $val | quote }}
+  {{- end }}

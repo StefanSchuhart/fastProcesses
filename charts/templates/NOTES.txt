@@ -1,0 +1,14 @@
+Your fastprocesses API is available at:
+  http://{{ include "fastprocesses.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/
+
+Available endpoints:
+- Landing page:  /
+- Processes:     /processes
+- Swagger UI:    /docs
+- Redoc:         /redoc
+
+To verify the API service:
+  kubectl --namespace {{ .Release.Namespace }} get svc {{ include "fastprocesses.fullname" . }}
+
+To port-forward the service to your local machine:
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "fastprocesses.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}

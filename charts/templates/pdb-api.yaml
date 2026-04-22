@@ -1,0 +1,12 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "fastprocesses.fullname" . }}-api
+  labels:
+    {{- include "fastprocesses.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: 75%
+  selector:
+    matchLabels:
+      {{- include "fastprocesses.selectorLabels" . | nindent 6 }}
+      component: api

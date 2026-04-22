@@ -1,0 +1,37 @@
+{{- if .Values.autoscaling.worker.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "fastprocesses.fullname" . }}-worker
+  labels:
+    {{- include "fastprocesses.labels" . | nindent 4 }}
+  annotations:
+    description: "HPA for the Worker component"
+    recommended-max-replicas: "{{ .Values.autoscaling.worker.hpa.maxReplicas }}"
+    metric-provider: "kubernetes/metrics-server"
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "fastprocesses.fullname" . }}-worker
+  minReplicas: {{ .Values.autoscaling.worker.hpa.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.worker.hpa.maxReplicas }}
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: {{ .Values.autoscaling.worker.hpa.targetCPUUtilization }}
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: {{ .Values.autoscaling.worker.hpa.targetMemoryUtilization }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+    scaleUp:
+      stabilizationWindowSeconds: 60
+{{- end }}

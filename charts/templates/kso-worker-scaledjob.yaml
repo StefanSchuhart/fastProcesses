@@ -1,0 +1,123 @@
+{{- if and .Values.autoscaling.worker.keda.enabled .Values.autoscaling.worker.keda.useScaledJob }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata:
+  name: {{ include "fastprocesses.fullname" . }}-worker
+  labels:
+    {{- include "fastprocesses.labels" . | nindent 4 }}
+spec:
+  pollingInterval: 10
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 5
+  maxReplicaCount: {{ .Values.autoscaling.worker.keda.maxReplicas }}
+  minReplicaCount: {{ .Values.autoscaling.worker.keda.minReplicas }}
+  rollout:
+    strategy: gradual
+    propagationPolicy: foreground
+  jobTargetRef:
+    parallelism: 1
+    completions: 1
+    activeDeadlineSeconds: {{ .Values.autoscaling.worker.keda.jobActiveDeadlineSeconds }}
+    backoffLimit: {{ .Values.autoscaling.worker.keda.jobRetries }}
+    template:
+      metadata:
+        labels:
+          {{- include "fastprocesses.selectorLabels" . | nindent 10 }}
+          component: worker
+      spec:
+        {{- with .Values.image.pullSecrets }}
+        imagePullSecrets:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .Values.nodeSelector.worker }}
+        nodeSelector:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .Values.tolerations.worker }}
+        tolerations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        containers:
+          - name: {{ .Chart.Name }}-worker
+            image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+            imagePullPolicy: {{ .Values.image.pullPolicy }}
+            {{- if .Values.worker.command }}
+            command:
+              {{- toYaml .Values.worker.command | nindent 14 }}
+            {{- else }}
+            command:
+              - celery
+              - -A
+              - fastprocesses.worker.celery_app
+              - worker
+              - "--loglevel={{ .Values.config.celery.logLevel }}"
+              - --concurrency=1
+              - -Q
+              - {{ join "," .Values.worker.queues | quote }}
+            {{- end }}
+            env:
+              - name: CELERY_BROKER_PASSWORD
+                {{- if .Values.config.celery.existingSecret }}
+                valueFrom:
+                  secretKeyRef:
+                    name: {{ .Values.config.celery.existingSecret }}
+                    key: {{ .Values.config.celery.existingSecretKey }}
+                {{- else }}
+                value: ""
+                {{- end }}
+              - name: RESULT_CACHE_PASSWORD
+                {{- if .Values.config.resultCache.existingSecret }}
+                valueFrom:
+                  secretKeyRef:
+                    name: {{ .Values.config.resultCache.existingSecret }}
+                    key: {{ .Values.config.resultCache.existingSecretKey }}
+                {{- else }}
+                value: ""
+                {{- end }}
+              {{- with .Values.worker.extraEnvVars }}
+              {{- toYaml . | nindent 14 }}
+              {{- end }}
+            envFrom:
+              - configMapRef:
+                  name: {{ include "fastprocesses.fullname" . }}
+            resources:
+              {{- toYaml .Values.resources.worker | nindent 14 }}
+            volumeMounts:
+              - name: memory-volume
+                mountPath: /tmp
+              {{- with .Values.worker.extraVolumeMounts }}
+              {{- toYaml . | nindent 14 }}
+              {{- end }}
+        restartPolicy: Never
+        volumes:
+          - name: memory-volume
+            emptyDir:
+              medium: Memory
+              sizeLimit: 500Mi
+          {{- with .Values.worker.extraVolumes }}
+          {{- toYaml . | nindent 10 }}
+          {{- end }}
+  triggers:
+    - type: redis
+      metadata:
+        address: "{{ .Values.config.celery.brokerHost }}:{{ .Values.config.celery.brokerPort }}"
+        listName: {{ index .Values.worker.queues 0 | quote }}
+        listLength: {{ .Values.autoscaling.worker.keda.queueLength | quote }}
+        dbIndex: {{ .Values.config.celery.brokerDb | quote }}
+        {{- if .Values.config.celery.existingSecret }}
+        authenticationRef:
+          name: {{ include "fastprocesses.fullname" . }}-redis-trigger-auth
+        {{- end }}
+---
+{{- if .Values.config.celery.existingSecret }}
+apiVersion: keda.k8s.io/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: {{ include "fastprocesses.fullname" . }}-redis-trigger-auth
+spec:
+  secretTargetRef:
+  - parameter: password
+    name: {{ .Values.config.celery.existingSecret }}
+    key: {{ .Values.config.celery.existingSecretKey }}
+{{- end }}
+{{- end }}

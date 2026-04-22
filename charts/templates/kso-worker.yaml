@@ -1,0 +1,54 @@
+{{- if and .Values.autoscaling.worker.keda.enabled (not .Values.autoscaling.worker.keda.useScaledJob) }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "fastprocesses.fullname" . }}-worker
+  labels:
+    {{- include "fastprocesses.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    name: {{ include "fastprocesses.fullname" . }}-worker
+    kind: Deployment
+  minReplicaCount: {{ .Values.autoscaling.worker.keda.minReplicas }}
+  maxReplicaCount: {{ .Values.autoscaling.worker.keda.maxReplicas }}
+  pollingInterval: 3
+  cooldownPeriod: {{ .Values.autoscaling.worker.keda.cooldownSeconds }}
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 60
+          policies:
+            - type: Percent
+              value: 100
+              periodSeconds: 15
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+            - type: Percent
+              value: 100
+              periodSeconds: 15
+  triggers:
+    - type: redis
+      metadata:
+        address: "{{ .Values.config.celery.brokerHost }}:{{ .Values.config.celery.brokerPort }}"
+        listName: {{ index .Values.worker.queues 0 | quote }}
+        listLength: {{ .Values.autoscaling.worker.keda.queueLength | quote }}
+        dbIndex: {{ .Values.config.celery.brokerDb | quote }}
+        {{- if .Values.config.celery.existingSecret }}
+        authenticationRef:
+          name: {{ include "fastprocesses.fullname" . }}-redis-trigger-auth
+        {{- end }}
+---
+{{- if .Values.config.celery.existingSecret }}
+apiVersion: keda.k8s.io/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: {{ include "fastprocesses.fullname" . }}-redis-trigger-auth
+spec:
+  secretTargetRef:
+  - parameter: password
+    name: {{ .Values.config.celery.existingSecret }}
+    key: {{ .Values.config.celery.existingSecretKey }}
+{{- end }}
+{{- end }}

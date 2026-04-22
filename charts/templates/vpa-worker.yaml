@@ -1,0 +1,30 @@
+{{- if .Values.autoscaling.worker.vpa.enabled }}
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: {{ include "fastprocesses.fullname" . }}-worker
+  labels:
+    {{- include "fastprocesses.labels" . | nindent 4 }}
+  annotations:
+    description: "VPA for the Worker component to optimize resource allocation"
+    vpa-update-mode: "Auto"
+    min-allowed-resources: "cpu={{ .Values.autoscaling.worker.vpa.minAllowedCPU }},memory={{ .Values.autoscaling.worker.vpa.minAllowedMemory }}"
+    max-allowed-resources: "cpu={{ .Values.autoscaling.worker.vpa.maxAllowedCPU }},memory={{ .Values.autoscaling.worker.vpa.maxAllowedMemory }}"
+spec:
+  targetRef:
+    apiVersion: "apps/v1"
+    kind: Deployment
+    name: {{ include "fastprocesses.fullname" . }}-worker
+  updatePolicy:
+    updateMode: "Auto"
+  resourcePolicy:
+    containerPolicies:
+    - containerName: {{ .Chart.Name }}-worker
+      minAllowed:
+        cpu: {{ .Values.autoscaling.worker.vpa.minAllowedCPU }}
+        memory: {{ .Values.autoscaling.worker.vpa.minAllowedMemory }}
+      maxAllowed:
+        cpu: {{ .Values.autoscaling.worker.vpa.maxAllowedCPU }}
+        memory: {{ .Values.autoscaling.worker.vpa.maxAllowedMemory }}
+      controlledResources: ["cpu", "memory"]
+{{- end }}

@@ -1,0 +1,157 @@
+image:
+  repository: ""  # required — set to your container image repository
+  tag: "latest"
+  pullPolicy: IfNotPresent
+  pullSecrets: []    # e.g. - name: regcred
+
+nameOverride: ""
+fullnameOverride: ""
+
+podLabels:
+  api: {}    # e.g. environment: prod
+  worker: {} # e.g. type: background
+
+nodeSelector:
+  api: {}
+  worker: {}
+
+tolerations:
+  api: []
+  worker: []
+
+service:
+  type: ClusterIP
+  port: 8000
+  targetPort: 8000
+
+probes:
+  api:
+    liveness:
+      enabled: true
+
+# API pod settings
+api:
+  # Override the default uvicorn startup command.
+  # Default: uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1 --log-level info
+  # Follow the app:app convention (FastAPI instance named `app` in a module named `app`).
+  command: []
+  # Extra env vars injected into the API container. Supports full K8s env spec,
+  # including valueFrom (secretKeyRef, configMapKeyRef, fieldRef, etc.).
+  # Example:
+  #   - name: MY_VAR
+  #     value: "hello"
+  #   - name: MY_SECRET
+  #     valueFrom:
+  #       secretKeyRef:
+  #         name: my-secret
+  #         key: my-key
+  extraEnvVars: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  # Forward-compatibility for API federation: when false the API pod does not
+  # clear the shared process registry on startup (gateway-only mode).
+  # Has no effect until federation support is implemented in fastprocesses.
+  clearRegistryOnStartup: true
+
+# Worker pod settings
+worker:
+  # Celery queues this worker subscribes to (-Q flag).
+  # The first queue also drives the KEDA trigger listName.
+  queues:
+    - celery
+  # Override the default celery worker command.
+  command: []
+  # Extra env vars injected into the worker container (same format as api.extraEnvVars).
+  extraEnvVars: []
+  extraVolumes: []
+  extraVolumeMounts: []
+
+config:
+  apiTitle: "fastprocesses API"
+  apiDescription: "An OGC API Processes implementation powered by fastprocesses."
+
+  resultCache:
+    host: "redis"
+    port: 6379
+    db: 1
+    existingSecret: ""
+    existingSecretKey: ""
+    resultsTempTtlHours: 24
+
+  celery:
+    brokerHost: "redis"
+    brokerPort: 6379
+    brokerDb: 0
+    resultsTtlDays: 7
+    taskTlimitHard: 1800 # seconds
+    taskTlimitSoft: 1500 # seconds
+    jobStatusTtlDays: 7
+    existingSecret: ""
+    existingSecretKey: ""
+    logLevel: "info"
+    jobMode: false
+
+  syncExecutionTimeoutSeconds: 10
+
+  logLevel: "INFO"
+
+  # Arbitrary extra key/value string pairs added to the ConfigMap.
+  # Use this for app-specific environment variables that are plain strings.
+  # For variables requiring valueFrom (secrets, etc.) use api.extraEnvVars / worker.extraEnvVars.
+  # Example:
+  #   NP_JAVA_MAX_HEAP_SIZE: "4096"
+  #   NP_JAVA_INITIAL_HEAP_SIZE: "1024"
+  extraConfigMapData: {}
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+  automount: false
+
+resources:
+  api:
+    limits:
+      cpu: 1
+      memory: 1Gi
+    requests:
+      cpu: 1
+      memory: 1Gi
+  worker:
+    limits:
+      cpu: 2
+      memory: 3Gi
+    requests:
+      cpu: 2
+      memory: 3Gi
+
+autoscaling:
+  api:
+    hpa:
+      enabled: false
+      minReplicas: 2
+      maxReplicas: 10
+      targetCPUUtilization: 70
+      targetMemoryUtilization: 80
+  worker:
+    hpa:
+      enabled: false
+      minReplicas: 2
+      maxReplicas: 15
+      targetCPUUtilization: 60
+      targetMemoryUtilization: 75
+    vpa:
+      enabled: false
+      minAllowedCPU: "200m"
+      minAllowedMemory: "256Mi"
+      maxAllowedCPU: "4"
+      maxAllowedMemory: "8Gi"
+    keda:
+      enabled: true
+      minReplicas: 0 # scale down to zero to spare resources
+      maxReplicas: 5
+      queueLength: 3
+      cooldownSeconds: 120 # seconds
+      useScaledJob: true # If true, use KEDA ScaledJob+Job for worker, else use ScaledObject+Deployment
+      jobActiveDeadlineSeconds: 900 # 15 minutes
+      jobRetries: 3 # Number of retries for the job

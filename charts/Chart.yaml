@@ -1,0 +1,6 @@
+apiVersion: v2
+name: fastprocesses
+description: A generic Helm chart for deploying fastprocesses OGC API Processes applications
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
