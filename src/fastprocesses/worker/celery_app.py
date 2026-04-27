@@ -133,8 +133,62 @@ def update_job_status(
     logger.debug(f"Updated progress for job {job_id}: {progress}%, {message}")
 
 
+# ---------------------------------------------------------------------------
+# Parallel / scatter subtask progress tracking
+# ---------------------------------------------------------------------------
+
+_SUBTASK_PROGRESS_KEY = "fp:subtask_progress"
+
+
+def _increment_and_report_progress(job_id: str, total: int) -> None:
+    """
+    Atomically increments the completed-subtask counter for *job_id* and
+    reports proportional progress (0-90 %) to the job status cache.
+
+    The remaining 10 % (90-100 %) is reserved for the merge step executed
+    by ``finalize_parallel`` / ``finalize_scatter``.
+
+    All exceptions are swallowed so that a Redis hiccup never causes a
+    subtask to fail.
+    """
+    counter_key = f"{_SUBTASK_PROGRESS_KEY}:{job_id}"
+    try:
+        completed = job_status_cache.redis_connection._execute_redis_command(
+            "incr", counter_key
+        )
+        if completed == 1:
+            # Safety TTL so orphaned keys don't accumulate.
+            job_status_cache.redis_connection._execute_redis_command(
+                "expire", counter_key, 86400
+            )
+        progress = min(int(completed / total * 90), 90)
+        update_job_status(
+            job_id,
+            progress,
+            f"Completed {completed}/{total} subtasks.",
+            JobStatusCode.RUNNING,
+        )
+    except Exception as exc:  # pragma: no cover
+        logger.warning(
+            "Could not update subtask progress for job %s: %r", job_id, exc
+        )
+
+
+def _cleanup_progress_counter(job_id: str) -> None:
+    """Deletes the subtask progress counter key for *job_id*."""
+    counter_key = f"{_SUBTASK_PROGRESS_KEY}:{job_id}"
+    try:
+        job_status_cache.redis_connection._execute_redis_command("delete", counter_key)
+    except Exception as exc:  # pragma: no cover
+        logger.warning(
+            "Could not clean up progress counter for job %s: %r", job_id, exc
+        )
+
+
 @celery_app.task(bind=True, name="fastprocesses.execute_parallel_item")
-def execute_parallel_item(self, process_id: str, serialized_item: str) -> dict:
+def execute_parallel_item(
+    self, process_id: str, job_id: str, total: int, serialized_item: str
+) -> dict:
     """
     Executes a single parallel work item for a ``BaseParallelProcess``.
 
@@ -142,6 +196,10 @@ def execute_parallel_item(self, process_id: str, serialized_item: str) -> dict:
     ``group``) when the target process is a ``BaseParallelProcess``.  It
     calls ``execute_single`` on the process instance and returns the result
     as a plain dict so that Celery can serialise it through the result backend.
+
+    After a successful execution the task atomically increments a Redis
+    counter shared by all sibling tasks and updates the parent job's progress
+    to ``(n_done / total) * 90 %``.
     """
     item: dict = json.loads(serialized_item)
     service = get_process_registry().get_process(process_id)
@@ -155,7 +213,9 @@ def execute_parallel_item(self, process_id: str, serialized_item: str) -> dict:
                 return await p
             partial = asyncio.run(_await())
 
-    return jsonable_encoder(partial)
+    result = jsonable_encoder(partial)
+    _increment_and_report_progress(job_id, total)
+    return result
 
 
 def _run_parallel(
@@ -193,7 +253,7 @@ def _run_parallel(
     )
 
     chord(
-        [execute_parallel_item.s(process_id, json.dumps(item)) for item in items]
+        [execute_parallel_item.s(process_id, job_id, total, json.dumps(item)) for item in items]
     )(finalize_parallel.s(process_id, job_id, serialized_data))
 
 
@@ -239,6 +299,7 @@ def finalize_parallel(
         update_job_status(
             job_id, 100, "Process completed.", JobStatusCode.SUCCESSFUL
         )
+        _cleanup_progress_counter(job_id)
         logger.info(
             f"Parallel process {process_id} (job {job_id}) completed successfully."
         )
@@ -254,7 +315,7 @@ def finalize_parallel(
 
 @celery_app.task(bind=True, name="fastprocesses.execute_scatter_step")
 def execute_scatter_step(
-    self, process_id: str, step_name: str, serialized_data: str
+    self, process_id: str, job_id: str, total: int, step_name: str, serialized_data: str
 ) -> dict:
     """
     Executes one ``@parallel_step`` of a ``BaseScatterProcess``.
@@ -263,6 +324,10 @@ def execute_scatter_step(
     ``group``) when the target process is a ``BaseScatterProcess``.  It calls
     the named step method on the process instance and returns the result as a
     plain dict so that Celery can serialise it through the result backend.
+
+    After a successful execution the task atomically increments a Redis
+    counter shared by all sibling tasks and updates the parent job's progress
+    to ``(n_done / total) * 90 %``.
     """
     data: dict = json.loads(serialized_data)
     service = get_process_registry().get_process(process_id)
@@ -283,7 +348,9 @@ def execute_scatter_step(
                 return await p
             partial = asyncio.run(_await())
 
-    return jsonable_encoder(partial)
+    result = jsonable_encoder(partial)
+    _increment_and_report_progress(job_id, total)
+    return result
 
 
 def _run_scatter(
@@ -320,7 +387,7 @@ def _run_scatter(
 
     chord(
         [
-            execute_scatter_step.s(process_id, name, serialized_input)
+            execute_scatter_step.s(process_id, job_id, total, name, serialized_input)
             for name in step_names
         ]
     )(finalize_scatter.s(step_names, process_id, job_id, serialized_data))
@@ -373,6 +440,7 @@ def finalize_scatter(
         update_job_status(
             job_id, 100, "Process completed.", JobStatusCode.SUCCESSFUL
         )
+        _cleanup_progress_counter(job_id)
         logger.info(
             f"Scatter process {process_id} (job {job_id}) completed successfully."
         )
