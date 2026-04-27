@@ -296,13 +296,14 @@ class ProcessManager:
     def get_available_processes(
         self, limit: int, offset: int
     ) -> Tuple[List[ProcessDescription], str | None]:
-        logger.info("Retrieving available processes")
         """
         Retrieves a list of available processes.
 
         Returns:
             List[ProcessDescription]: A list of process descriptions.
         """
+        
+        logger.info("Retrieving available processes")
         process_ids = self.process_registry.get_process_ids()
 
         processes = [
@@ -316,7 +317,6 @@ class ProcessManager:
         return processes, next_link
 
     def get_process_description(self, process_id: str) -> ProcessDescription:
-        logger.info(f"Retrieving description for process ID: {process_id}")
         """
         Retrieves the description of a specific process.
 
@@ -329,6 +329,8 @@ class ProcessManager:
         Raises:
             ValueError: If the process is not found.
         """
+
+        logger.info(f"Retrieving description for process ID: {process_id}")
         if not self.process_registry.has_process(process_id):
             logger.error(f"Process {process_id} not found!")
             raise ProcessNotFoundError(process_id)
@@ -455,7 +457,7 @@ class ProcessManager:
 
         # TODO: if the job was found, but result is retrieved from cache AND celery worker is not running,
         # job status is successful, but result is not ready yet
-        if result.state == ("PENDING" or "STARTED" or "RETRY"):
+        if result.state in ("PENDING", "STARTED", "RETRY"):
             logger.error(f"Result for job ID {job_id} is not ready")
             raise JobNotReadyError(job_id)
 
@@ -485,7 +487,6 @@ class ProcessManager:
         return task_result
 
     def delete_job(self, job_id: str) -> Dict[str, Any]:
-        logger.info(f"Deleting job ID: {job_id}")
         """
         Deletes a specific job.
 
@@ -498,6 +499,8 @@ class ProcessManager:
         Raises:
             ValueError: If the job is not found.
         """
+
+        logger.info(f"Deleting job ID: {job_id}")
         result = AsyncResult(job_id)
         if not result:
             logger.error("Job not found")
