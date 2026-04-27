@@ -10,6 +10,7 @@ runs three independent lookups (elevation, land-use, temperature) concurrently.
 Each step is a @parallel_step method; merge_results stitches them together.
 """
 import json
+from contextlib import ExitStack
 from unittest.mock import patch
 
 import pytest
@@ -221,12 +222,16 @@ def test_execute_scatter_step_task(eager_celery, process):
     execute_scatter_step is the per-step subtask.
     It looks up the step by name, calls it, and returns a serialisation-safe dict.
     """
-    with patch(
-        "fastprocesses.worker.celery_app.get_process_registry"
-    ) as mock_registry:
+    with ExitStack() as stack:
+        mock_registry = stack.enter_context(
+            patch("fastprocesses.worker.celery_app.get_process_registry")
+        )
+        stack.enter_context(
+            patch("fastprocesses.worker.celery_app._increment_and_report_progress")
+        )
         mock_registry.return_value.get_process.return_value = process
         result = execute_scatter_step.delay(
-            "geo_enrich", "get_elevation", json.dumps(EXEC_BODY)
+            "geo_enrich", "test-job", 3, "get_elevation", json.dumps(EXEC_BODY)
         ).get()
 
     assert result == {"value_m": 342.5}
@@ -234,13 +239,17 @@ def test_execute_scatter_step_task(eager_celery, process):
 
 def test_execute_scatter_step_unknown_step_raises(eager_celery, process):
     """Requesting a non-existent step name raises ValueError."""
-    with patch(
-        "fastprocesses.worker.celery_app.get_process_registry"
-    ) as mock_registry:
+    with ExitStack() as stack:
+        mock_registry = stack.enter_context(
+            patch("fastprocesses.worker.celery_app.get_process_registry")
+        )
+        stack.enter_context(
+            patch("fastprocesses.worker.celery_app._increment_and_report_progress")
+        )
         mock_registry.return_value.get_process.return_value = process
         with pytest.raises(ValueError, match="not found"):
             execute_scatter_step.delay(
-                "geo_enrich", "nonexistent_step", json.dumps(EXEC_BODY)
+                "geo_enrich", "test-job", 1, "nonexistent_step", json.dumps(EXEC_BODY)
             ).get()
 
 
@@ -254,13 +263,17 @@ def test_run_scatter_fans_out_and_merges(
     has already stored the merged result in the cache by the time _run_scatter
     returns.
     """
-    with patch(
-        "fastprocesses.worker.celery_app.get_process_registry"
-    ) as mock_registry, patch(
-        "fastprocesses.worker.celery_app.update_job_status"
-    ), patch(
-        "fastprocesses.worker.celery_app.temp_result_cache"
-    ) as mock_cache:
+    with ExitStack() as stack:
+        mock_registry = stack.enter_context(
+            patch("fastprocesses.worker.celery_app.get_process_registry")
+        )
+        stack.enter_context(patch("fastprocesses.worker.celery_app.update_job_status"))
+        stack.enter_context(
+            patch("fastprocesses.worker.celery_app._increment_and_report_progress")
+        )
+        mock_cache = stack.enter_context(
+            patch("fastprocesses.worker.celery_app.temp_result_cache")
+        )
         mock_registry.return_value.get_process.return_value = process
         _run_scatter(
             service=process,
@@ -291,13 +304,20 @@ def test_run_scatter_dispatches_one_subtask_per_step(
         subtask_args.append(args)
         return original_s(*args, **kwargs)
 
-    with patch(
-        "fastprocesses.worker.celery_app.get_process_registry"
-    ) as mock_registry, patch(
-        "fastprocesses.worker.celery_app.update_job_status"
-    ), patch(
-        "fastprocesses.worker.celery_app.temp_result_cache"
-    ), patch.object(execute_scatter_step, "s", side_effect=recording_s):
+    with ExitStack() as stack:
+        mock_registry = stack.enter_context(
+            patch("fastprocesses.worker.celery_app.get_process_registry")
+        )
+        stack.enter_context(patch("fastprocesses.worker.celery_app.update_job_status"))
+        stack.enter_context(
+            patch("fastprocesses.worker.celery_app._increment_and_report_progress")
+        )
+        stack.enter_context(
+            patch("fastprocesses.worker.celery_app.temp_result_cache")
+        )
+        stack.enter_context(
+            patch.object(execute_scatter_step, "s", side_effect=recording_s)
+        )
         mock_registry.return_value.get_process.return_value = process
         _run_scatter(
             service=process,
@@ -311,7 +331,8 @@ def test_run_scatter_dispatches_one_subtask_per_step(
     assert len(subtask_args) == len(expected_steps)  # 3 steps → 3 subtasks
 
     # Every step receives the same serialised input
-    dispatched_data = [json.loads(args[2]) for args in subtask_args]
+    # args = (process_id, job_id, total, step_name, serialized_input)
+    dispatched_data = [json.loads(args[4]) for args in subtask_args]
     assert all(d == EXEC_BODY for d in dispatched_data)
 
 
@@ -330,13 +351,16 @@ def test_finalize_scatter_merges_and_caches(
     ]
     step_names = ["get_elevation", "get_land_use", "get_temperature"]
 
-    with patch(
-        "fastprocesses.worker.celery_app.get_process_registry"
-    ) as mock_registry, patch(
-        "fastprocesses.worker.celery_app.update_job_status"
-    ) as mock_update, patch(
-        "fastprocesses.worker.celery_app.temp_result_cache"
-    ) as mock_cache:
+    with ExitStack() as stack:
+        mock_registry = stack.enter_context(
+            patch("fastprocesses.worker.celery_app.get_process_registry")
+        )
+        mock_update = stack.enter_context(
+            patch("fastprocesses.worker.celery_app.update_job_status")
+        )
+        mock_cache = stack.enter_context(
+            patch("fastprocesses.worker.celery_app.temp_result_cache")
+        )
         mock_registry.return_value.get_process.return_value = process
         merged = finalize_scatter(
             step_results,
