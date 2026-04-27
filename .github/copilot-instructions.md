@@ -53,3 +53,35 @@ For multi-step tasks, state a brief plan before starting:
 2. [Step] → verify: [check]
 3. [Step] → verify: [check]
 ```
+
+## 5. Prefer stdlib Utilities Over Syntactic Workarounds
+
+When Python's standard library offers a cleaner way to express something, use it.
+Don't reach for workarounds that obscure intent just because a pattern isn't
+immediately obvious.
+
+**Context managers** — use `contextlib.ExitStack` when stacking three or more
+`with` statements. The staircase form (`with a, b, c:` or nested `with` blocks)
+hides which names are bound and makes adding/removing entries error-prone.
+
+```python
+# avoid — hard to see which managers return values
+with patch("mod.a") as mock_a, patch("mod.b"), patch("mod.c") as mock_c:
+    ...
+
+# prefer
+with ExitStack() as stack:
+    mock_a = stack.enter_context(patch("mod.a"))
+    stack.enter_context(patch("mod.b"))          # no return value needed
+    mock_c = stack.enter_context(patch("mod.c"))
+    ...
+```
+
+Other stdlib utilities worth defaulting to:
+- `contextlib.suppress` instead of a bare `try/except: pass`
+- `functools.cached_property` instead of manual `_cache` attributes
+- `itertools.islice` / `itertools.chain` instead of manual index slicing + concatenation
+- `collections.defaultdict` instead of `if key not in d: d[key] = []`
+
+The test: if the stdlib name makes the *intent* of the code clearer, use it.
+If it would require a reader to look it up, add a brief comment.
