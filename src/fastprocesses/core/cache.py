@@ -36,10 +36,7 @@ class TempResultCache:
 
         serialized_value = self.redis_connection._execute_redis_command("get", key)
 
-        if serialized_value is not None and hasattr(serialized_value, "decode"):
-            logger.debug(f"Received data from cache: {str(serialized_value)[:80]}")
-            return json.loads(serialized_value.decode("utf-8"))
-        elif isinstance(serialized_value, bytes):
+        if isinstance(serialized_value, bytes):
             logger.debug(f"Received data from cache: {str(serialized_value)[:80]}")
             return json.loads(serialized_value.decode("utf-8"))
         elif isinstance(serialized_value, str):
