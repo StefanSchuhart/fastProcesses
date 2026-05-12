@@ -57,7 +57,7 @@ def get_router(
             job_status_cache.redis_connection._execute_redis_command("ping")
             return {"status": "ready"}
         except Exception as exc:  # pragma: no cover - defensive logging path
-            logger.error("Readiness check failed: %r", exc)
+            logger.error("Readiness check failed: {!r}", exc)
             return JSONResponse(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 content={
@@ -79,7 +79,7 @@ def get_router(
         try:
             worker_status = process_manager.get_worker_status()
         except BrokerUnavailableError as exc:  # pragma: no cover - defensive path
-            logger.error("Worker health check failed due to broker error: %s", exc)
+            logger.error("Worker health check failed due to broker error: {}", exc)
             return JSONResponse(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 content={
@@ -103,7 +103,7 @@ def get_router(
         return Conformance(
             conformsTo=[
                 "http://www.opengis.net/spec/ogcapi-processes-1/1.0/conf/core",
-                "http://www.opengis.net/spec/ogcapi-processes-1/1.0/conf/json"
+                "http://www.opengis.net/spec/ogcapi-processes-1/1.0/conf/json",
                 "http://www.opengis.net/spec/ogcapi-processes-1/1.0/conf/job-list",
             ]
         )

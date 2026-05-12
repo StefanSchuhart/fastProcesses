@@ -87,7 +87,7 @@ class AsyncExecutionStrategy(ExecutionStrategy):
             )
         except kombu.exceptions.OperationalError as exc:
             logger.error(
-                "Broker unavailable when submitting async task for process_id=%s: %s",
+                "Broker unavailable when submitting async task for process_id={}: {}",
                 process_id,
                 exc,
             )
@@ -95,7 +95,7 @@ class AsyncExecutionStrategy(ExecutionStrategy):
         send_elapsed = time.monotonic() - send_start
         if send_elapsed > 1.0:
             logger.warning(
-                "Celery async send_task for process_id=%s took %.2fs",
+                "Celery async send_task for process_id={} took {:.2f}s",
                 process_id,
                 send_elapsed,
             )
@@ -152,7 +152,7 @@ class SyncExecutionStrategy(ExecutionStrategy):
             )
         except kombu.exceptions.OperationalError as exc:
             logger.error(
-                "Broker unavailable when submitting sync task for process_id=%s: %s",
+                "Broker unavailable when submitting sync task for process_id={}: {}",
                 process_id,
                 exc,
             )
@@ -160,7 +160,7 @@ class SyncExecutionStrategy(ExecutionStrategy):
         send_elapsed = time.monotonic() - send_start
         if send_elapsed > 1.0:
             logger.warning(
-                "Celery sync send_task for process_id=%s took %.2fs",
+                "Celery sync send_task for process_id={} took {:.2f}s",
                 process_id,
                 send_elapsed,
             )
@@ -197,7 +197,7 @@ class SyncExecutionStrategy(ExecutionStrategy):
             get_elapsed = time.monotonic() - get_start
             if get_elapsed > 1.0:
                 logger.warning(
-                    "Celery AsyncResult.get for sync job_id=%s took %.2fs",
+                    "Celery AsyncResult.get for sync job_id={} took {:.2f}s",
                     task.id,
                     get_elapsed,
                 )
@@ -272,7 +272,7 @@ class ProcessManager:
             inspector = self.celery_app.control.inspect(timeout=1.0)
         except kombu.exceptions.OperationalError as exc:
             logger.error(
-                "Celery worker status check failed due to broker error: %s",
+                "Celery worker status check failed due to broker error: {}",
                 exc,
             )
             raise BrokerUnavailableError(str(exc)) from exc
@@ -296,13 +296,14 @@ class ProcessManager:
     def get_available_processes(
         self, limit: int, offset: int
     ) -> Tuple[List[ProcessDescription], str | None]:
-        logger.info("Retrieving available processes")
         """
         Retrieves a list of available processes.
 
         Returns:
             List[ProcessDescription]: A list of process descriptions.
         """
+        
+        logger.info("Retrieving available processes")
         process_ids = self.process_registry.get_process_ids()
 
         processes = [
@@ -316,7 +317,6 @@ class ProcessManager:
         return processes, next_link
 
     def get_process_description(self, process_id: str) -> ProcessDescription:
-        logger.info(f"Retrieving description for process ID: {process_id}")
         """
         Retrieves the description of a specific process.
 
@@ -329,6 +329,8 @@ class ProcessManager:
         Raises:
             ValueError: If the process is not found.
         """
+
+        logger.info(f"Retrieving description for process ID: {process_id}")
         if not self.process_registry.has_process(process_id):
             logger.error(f"Process {process_id} not found!")
             raise ProcessNotFoundError(process_id)
@@ -455,7 +457,7 @@ class ProcessManager:
 
         # TODO: if the job was found, but result is retrieved from cache AND celery worker is not running,
         # job status is successful, but result is not ready yet
-        if result.state == ("PENDING" or "STARTED" or "RETRY"):
+        if result.state in ("PENDING", "STARTED", "RETRY"):
             logger.error(f"Result for job ID {job_id} is not ready")
             raise JobNotReadyError(job_id)
 
@@ -485,7 +487,6 @@ class ProcessManager:
         return task_result
 
     def delete_job(self, job_id: str) -> Dict[str, Any]:
-        logger.info(f"Deleting job ID: {job_id}")
         """
         Deletes a specific job.
 
@@ -498,6 +499,8 @@ class ProcessManager:
         Raises:
             ValueError: If the job is not found.
         """
+
+        logger.info(f"Deleting job ID: {job_id}")
         result = AsyncResult(job_id)
         if not result:
             logger.error("Job not found")
@@ -610,7 +613,7 @@ class ProcessManager:
             send_elapsed = time.monotonic() - send_start
             if send_elapsed > 1.0:
                 logger.warning(
-                    "Celery send_task for cache retrieval key=%s took %.2fs",
+                    "Celery send_task for cache retrieval key={} took {:.2f}s",
                     calculation_task.celery_key,
                     send_elapsed,
                 )
@@ -621,7 +624,7 @@ class ProcessManager:
             get_elapsed = time.monotonic() - get_start
             if get_elapsed > 1.0:
                 logger.warning(
-                    "Celery cache retrieval task.get for key=%s took %.2fs",
+                    "Celery cache retrieval task.get for key={} took {:.2f}s",
                     calculation_task.celery_key,
                     get_elapsed,
                 )
