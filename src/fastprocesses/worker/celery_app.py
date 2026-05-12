@@ -478,7 +478,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
 
     # Third: Execute the process
     try:
-        logger.info(f"Worker executing process {process_id} with data {data}")
+        logger.info("Worker executing process {}", process_id)
         job_status = JobStatusCode.RUNNING
         # BUG: if redis returns no job_status, this fails and creates a ValueError too
         update_job_status(
