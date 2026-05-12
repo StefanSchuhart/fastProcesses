@@ -78,6 +78,7 @@ each receive the full input and run on separate workers simultaneously.
     # Poll and fetch result the same way as above.
 """
 import asyncio
+import logging
 from typing import Any, Callable
 
 import uvicorn
@@ -433,5 +434,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8000,
         log_config=None,
-        log_level="DEBUG",
+        log_level=logging.DEBUG,
     )
