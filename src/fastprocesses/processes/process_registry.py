@@ -115,7 +115,7 @@ class ProcessRegistry:
 
         process_info = json.loads(process_data)  # type: ignore
         logger.debug(
-            f"Process data retrieved from Redis:\n{json.dumps(process_info, indent=4)}"
+            f"Process data retrieved from Redis for {process_id}."
         )
 
         process_class = cast(Type[BaseProcess], locate(process_info["class_path"]))
