@@ -147,7 +147,7 @@ class BaseProcess(ABC):
                 )
                 if is_unresolvable:
                     logger.warning(
-                        "Remote $ref for input '%s' could not be resolved (%s). "
+                        "Remote $ref for input '{}' could not be resolved ({}). "
                         "Skipping schema validation for this input and proceeding.",
                         input_name,
                         e,

@@ -95,7 +95,7 @@ def update_job_status(
 
     if not raw_job_info:
         logger.warning(
-            "Job status for job_id=%s not found in cache when updating; "
+            "Job status for job_id={} not found in cache when updating; "
             "skipping status update.",
             job_id,
         )
@@ -105,7 +105,7 @@ def update_job_status(
         job_info = JobStatusInfo.model_validate(raw_job_info)
     except Exception as exc:
         logger.error(
-            "Failed to validate cached job status for job_id=%s: %r", job_id, exc
+            "Failed to validate cached job status for job_id={}: {!r}", job_id, exc
         )
         return
 
@@ -402,7 +402,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
 
         if not raw_job_info:
             logger.warning(
-                "Job status for job_id=%s not found in cache during progress "
+                "Job status for job_id={} not found in cache during progress "
                 "callback; skipping progress update.",
                 job_id,
             )
@@ -413,7 +413,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
         except Exception as exc:
             logger.error(
                 "Failed to validate cached job status in progress callback for "
-                "job_id=%s: %r",
+                "job_id={}: {!r}",
                 job_id,
                 exc,
             )
