@@ -5,9 +5,9 @@ import json
 import signal
 import traceback
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, cast
 
-from celery import Task, chord, group
+from celery import Task, chord
 from celery.exceptions import SoftTimeLimitExceeded
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ValidationError
@@ -80,6 +80,7 @@ def update_job_status(
     message: str | None = None,
     status: str | None = None,
     started: datetime | None = None,
+    process_id: str | None = None,
 ) -> None:
     """
     Updates the progress of a job.
@@ -96,8 +97,49 @@ def update_job_status(
     if not raw_job_info:
         logger.warning(
             "Job status for job_id={} not found in cache when updating; "
-            "skipping status update.",
+            "initializing a fallback job status entry.",
             job_id,
+        )
+        fallback_status = status or JobStatusCode.RUNNING
+        now = datetime.now(timezone.utc)
+        job_info = JobStatusInfo.model_validate(
+            {
+                "jobID": job_id,
+                "status": fallback_status,
+                "type": "process",
+                "processID": process_id,
+                "created": now,
+                "updated": now,
+                "progress": progress,
+                "message": message,
+                "links": [
+                    Link.model_validate(
+                        {
+                            "href": f"/jobs/{job_id}",
+                            "rel": "self",
+                            "type": "application/json",
+                        }
+                    )
+                ],
+            }
+        )
+        if fallback_status == JobStatusCode.SUCCESSFUL:
+            job_info.finished = now
+            job_info.links.append(
+                Link.model_validate(
+                    {
+                        "href": f"/jobs/{job_id}/results",
+                        "rel": "results",
+                        "type": "application/json",
+                    }
+                )
+            )
+        job_status_cache.put(job_key, job_info)
+        logger.debug(
+            "Initialized fallback job status for job {}: {} at {}%",
+            job_id,
+            fallback_status,
+            progress,
         )
         return
 
@@ -128,6 +170,8 @@ def update_job_status(
 
     if message:
         job_info.message = message
+    if process_id and not job_info.processID:
+        job_info.processID = process_id
 
     job_status_cache.put(job_key, job_info)
     logger.debug(f"Updated progress for job {job_id}: {progress}%, {message}")
@@ -170,7 +214,7 @@ def _increment_and_report_progress(job_id: str, total: int) -> None:
         )
     except Exception as exc:  # pragma: no cover
         logger.warning(
-            "Could not update subtask progress for job %s: %r", job_id, exc
+            "Could not update subtask progress for job {}: {!r}", job_id, exc
         )
 
 
@@ -181,7 +225,7 @@ def _cleanup_progress_counter(job_id: str) -> None:
         job_status_cache.redis_connection._execute_redis_command("delete", counter_key)
     except Exception as exc:  # pragma: no cover
         logger.warning(
-            "Could not clean up progress counter for job %s: %r", job_id, exc
+            "Could not clean up progress counter for job {}: {!r}", job_id, exc
         )
 
 
@@ -201,21 +245,36 @@ def execute_parallel_item(
     counter shared by all sibling tasks and updates the parent job's progress
     to ``(n_done / total) * 90 %``.
     """
-    item: dict = json.loads(serialized_item)
-    service = get_process_registry().get_process(process_id)
+    try:
+        item: dict = json.loads(serialized_item)
+        service = cast(
+            BaseParallelProcess,
+            get_process_registry().get_process(process_id),
+        )
 
-    partial = service.execute_single(item)
-    if inspect.isawaitable(partial):
-        if asyncio.iscoroutine(partial):
-            partial = asyncio.run(partial)
-        else:
-            async def _await(p=partial):
-                return await p
-            partial = asyncio.run(_await())
+        partial = service.execute_single(item)
+        if inspect.isawaitable(partial):
+            if asyncio.iscoroutine(partial):
+                partial = asyncio.run(partial)
+            else:
 
-    result = jsonable_encoder(partial)
-    _increment_and_report_progress(job_id, total)
-    return result
+                async def _await(p=partial):
+                    return await p
+
+                partial = asyncio.run(_await())
+
+        result = jsonable_encoder(partial)
+        _increment_and_report_progress(job_id, total)
+        return result
+    except Exception as exc:
+        update_job_status(
+            job_id,
+            0,
+            f"Parallel subtask failed: {exc}",
+            JobStatusCode.FAILED,
+            process_id=process_id,
+        )
+        raise
 
 
 def _run_parallel(
@@ -252,9 +311,19 @@ def _run_parallel(
         f"{total} subtask(s)."
     )
 
+    execute_parallel_item_task = cast(Any, execute_parallel_item)
+    finalize_parallel_task = cast(Any, finalize_parallel)
     chord(
-        [execute_parallel_item.s(process_id, job_id, total, json.dumps(item)) for item in items]
-    )(finalize_parallel.s(process_id, job_id, serialized_data))
+        [
+            execute_parallel_item_task.s(
+                process_id,
+                job_id,
+                total,
+                json.dumps(item),
+            )
+            for item in items
+        ]
+    )(finalize_parallel_task.s(process_id, job_id, serialized_data))
 
 
 @celery_app.task(name="fastprocesses.finalize_parallel")
@@ -274,7 +343,7 @@ def finalize_parallel(
     2. Caches the merged result under the same key used by ``CacheResultTask``.
     3. Updates the job status to SUCCESSFUL (or FAILED on error).
     """
-    service = get_process_registry().get_process(process_id)
+    service = cast(BaseParallelProcess, get_process_registry().get_process(process_id))
     try:
         update_job_status(
             job_id, 95, "Merging parallel results.", JobStatusCode.RUNNING
@@ -329,28 +398,43 @@ def execute_scatter_step(
     counter shared by all sibling tasks and updates the parent job's progress
     to ``(n_done / total) * 90 %``.
     """
-    data: dict = json.loads(serialized_data)
-    service = get_process_registry().get_process(process_id)
-
-    steps = get_parallel_steps(service)
-    if step_name not in steps:
-        raise ValueError(
-            f"Step '{step_name}' not found on process '{process_id}'. "
-            f"Available steps: {list(steps)}"
+    try:
+        data: dict = json.loads(serialized_data)
+        service = cast(
+            BaseScatterProcess,
+            get_process_registry().get_process(process_id),
         )
 
-    partial = steps[step_name](data)
-    if inspect.isawaitable(partial):
-        if asyncio.iscoroutine(partial):
-            partial = asyncio.run(partial)
-        else:
-            async def _await(p=partial):
-                return await p
-            partial = asyncio.run(_await())
+        steps = get_parallel_steps(service)
+        if step_name not in steps:
+            raise ValueError(
+                f"Step '{step_name}' not found on process '{process_id}'. "
+                f"Available steps: {list(steps)}"
+            )
 
-    result = jsonable_encoder(partial)
-    _increment_and_report_progress(job_id, total)
-    return result
+        partial = steps[step_name](data)
+        if inspect.isawaitable(partial):
+            if asyncio.iscoroutine(partial):
+                partial = asyncio.run(partial)
+            else:
+
+                async def _await(p=partial):
+                    return await p
+
+                partial = asyncio.run(_await())
+
+        result = jsonable_encoder(partial)
+        _increment_and_report_progress(job_id, total)
+        return result
+    except Exception as exc:
+        update_job_status(
+            job_id,
+            0,
+            f"Scatter step '{step_name}' failed: {exc}",
+            JobStatusCode.FAILED,
+            process_id=process_id,
+        )
+        raise
 
 
 def _run_scatter(
@@ -385,12 +469,20 @@ def _run_scatter(
         f"{total} step(s): {step_names}."
     )
 
+    execute_scatter_step_task = cast(Any, execute_scatter_step)
+    finalize_scatter_task = cast(Any, finalize_scatter)
     chord(
         [
-            execute_scatter_step.s(process_id, job_id, total, name, serialized_input)
+            execute_scatter_step_task.s(
+                process_id,
+                job_id,
+                total,
+                name,
+                serialized_input,
+            )
             for name in step_names
         ]
-    )(finalize_scatter.s(step_names, process_id, job_id, serialized_data))
+    )(finalize_scatter_task.s(step_names, process_id, job_id, serialized_data))
 
 
 @celery_app.task(name="fastprocesses.finalize_scatter")
@@ -412,7 +504,7 @@ def finalize_scatter(
     2. Caches the merged result under the same key used by ``CacheResultTask``.
     3. Updates the job status to SUCCESSFUL (or FAILED on error).
     """
-    service = get_process_registry().get_process(process_id)
+    service = cast(BaseScatterProcess, get_process_registry().get_process(process_id))
     try:
         named_results = dict(zip(step_names, step_results))
         exec_body: dict = json.loads(serialized_data)
@@ -465,42 +557,23 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
             message (str): A message describing the current progress.
             status (str | None): The current status (e.g., "RUNNING", "SUCCESSFUL").
         """
-        job_key = f"job:{job_id}"
-        raw_job_info = job_status_cache.get(job_key)
-
-        if not raw_job_info:
-            logger.warning(
-                "Job status for job_id={} not found in cache during progress "
-                "callback; skipping progress update.",
-                job_id,
-            )
-            return
-
-        try:
-            job_info = JobStatusInfo.model_validate(raw_job_info)
-        except Exception as exc:
-            logger.error(
-                "Failed to validate cached job status in progress callback for "
-                "job_id={}: {!r}",
-                job_id,
-                exc,
-            )
-            return
-
-        job_info.progress = progress
-        job_info.updated = datetime.now(timezone.utc)
-
-        if message:
-            job_info.message = message
-
-        job_status_cache.put(job_key, job_info)
-        logger.debug(f"Updated progress for job {job_id}: {progress}%, {message}")
+        update_job_status(
+            job_id,
+            progress,
+            message,
+            JobStatusCode.RUNNING,
+            process_id=process_id,
+        )
 
     chord_dispatched = False  # True when a parallel/scatter chord is dispatched
     result = None
     job_status = JobStatusCode.RUNNING
     job_message = ""
-    data: dict = json.loads(serialized_data)
+    if isinstance(serialized_data, str):
+        serialized_data_str: str = serialized_data
+    else:
+        serialized_data_str = bytes(serialized_data).decode("utf-8")
+    data: dict = json.loads(serialized_data_str)
 
     logger.info(f"Executing process {process_id} with data {serialized_data[:80]}")
     job_id = self.request.id  # Get the task/job ID
@@ -560,12 +633,12 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
         if isinstance(service, BaseParallelProcess):
             # Data fan-out: split → N parallel subtasks (same op) → merge.
             # Chord dispatched; this task returns immediately.
-            _run_parallel(service, process_id, data, job_id, serialized_data)
+            _run_parallel(service, process_id, data, job_id, serialized_data_str)
             chord_dispatched = True
         elif isinstance(service, BaseScatterProcess):
             # Operation fan-out: N different steps on same input → merge.
             # Chord dispatched; this task returns immediately.
-            _run_scatter(service, process_id, data, job_id, serialized_data)
+            _run_scatter(service, process_id, data, job_id, serialized_data_str)
             chord_dispatched = True
         else:
             result = service.run_execute(
