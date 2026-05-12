@@ -6,6 +6,7 @@ from typing import Any, Awaitable, ClassVar, Dict, List
 from jsonschema import ValidationError as JSONSchemaValidationError
 from jsonschema import validate as jsonschema_validate
 from pydantic import BaseModel
+from referencing import Registry
 from referencing.exceptions import Unresolvable as _UnresolvableRef
 
 from fastprocesses.core.logging import logger
@@ -15,6 +16,10 @@ from fastprocesses.core.types import JobProgressCallback
 
 class BaseProcess(ABC):
     process_description: ClassVar[ProcessDescription]
+    schema_registry: ClassVar[Registry | None] = None
+    """Optional local ``referencing.Registry`` for resolving ``$ref`` URIs
+    without network access.  Subclasses that reference remote schemas should
+    build a registry from bundled local files and assign it here."""
 
     def get_description(self) -> ProcessDescription:
         """
@@ -129,7 +134,11 @@ class BaseProcess(ABC):
             input_desc = required_inputs[input_name]
             try:
                 input_schema = input_desc.scheme.model_dump(exclude_unset=True)
-                jsonschema_validate(instance=input_value, schema=input_schema)
+                jsonschema_validate(
+                    instance=input_value,
+                    schema=input_schema,
+                    registry=self.schema_registry,
+                )
             except JSONSchemaValidationError as e:
                 raise ValueError(
                     f"Input '{input_name}' validation failed: {e.message}. "
