@@ -51,6 +51,9 @@ spec:
             - "1"
             - --log-level
             - info
+            {{- with .Values.api.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- end }}
           ports:
             - name: http

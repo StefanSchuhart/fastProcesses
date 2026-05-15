@@ -35,6 +35,21 @@ api:
   # Default: uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1 --log-level info
   # Follow the app:app convention (FastAPI instance named `app` in a module named `app`).
   command: []
+  # Overwrite the default uvicorn command with your own command. 
+  # If set, this completely replaces the default command and any extraArgs are ignored.
+  extraArgs: []
+  # Extra CLI flags appended to the default uvicorn command (ignored when command is set).
+  # Each flag and its value must be a separate list entry.
+  # Example:
+  #   - --timeout-keep-alive
+  #   - "120"
+  #   - --limit-concurrency
+  #   - "100"
+      # - --limit-max-requests
+      # - "10000"
+      # - --timeout-notify
+      # - "30"
+  extraEnvVars: []
   # Extra env vars injected into the API container. Supports full K8s env spec,
   # including valueFrom (secretKeyRef, configMapKeyRef, fieldRef, etc.).
   # Example:
@@ -45,7 +60,6 @@ api:
   #       secretKeyRef:
   #         name: my-secret
   #         key: my-key
-  extraEnvVars: []
   extraVolumes: []
   extraVolumeMounts: []
   # Forward-compatibility for API federation: when false the API pod does not
