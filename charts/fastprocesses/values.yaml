@@ -45,7 +45,7 @@ api:
   # Each flag and its value must be a separate list entry.
   # Example:
       # - --workers
-      # - "1"
+      # - "2"
       # - --log-level
       # - info
       # - --timeout-keep-alive
@@ -54,6 +54,11 @@ api:
       # - "100"
       # - --limit-max-requests
       # - "10000"
+      # Large request bodies (> 16 KB): h11's default incomplete-event buffer is 16 KB.
+      # If bodies are large set this to 0 (unlimited) to prevent h11 from closing
+      # the connection mid-upload with a protocol error.
+      # - --h11-max-incomplete-event-size
+      # - "0"
   extraEnvVars: []
   # Extra env vars injected into the API container. Supports full K8s env spec,
   # including valueFrom (secretKeyRef, configMapKeyRef, fieldRef, etc.).
