@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
+from pydantic import ValidationError
+
 import celery.exceptions
 import kombu.exceptions
 from celery.result import AsyncResult
@@ -101,6 +103,66 @@ class AsyncExecutionStrategy(ExecutionStrategy):
             )
 
         # Initialize job metadata in cache with status 'accepted'
+        job_status = JobStatusInfo.model_validate(
+            {
+                "jobID": task.id,
+                "status": JobStatusCode.ACCEPTED,
+                "type": "process",
+                "processID": process_id,
+                "created": datetime.now(timezone.utc),
+                "progress": 0,
+                "links": [
+                    Link.model_validate(
+                        {
+                            "href": f"/jobs/{task.id}",
+                            "rel": "self",
+                            "type": "application/json",
+                        }
+                    )
+                ],
+            }
+        )
+        self.process_manager.job_status_cache.put(f"job:{task.id}", job_status)
+
+        return ProcessExecResponse(status="accepted", jobID=task.id, type="process")
+
+    def execute_raw(self, process_id: str, raw_body: bytes) -> ProcessExecResponse:
+        """Fast path for async execution with large request bodies.
+
+        Sends the original request bytes to Celery without any Python-level
+        re-serialisation (no jsonable_encoder, no model_dump, no json.dumps).
+        Cache lookup is skipped here and delegated to the worker, which already
+        checks the cache before executing.
+
+        This eliminates up to 4 full Python-level passes through the input data
+        before returning 201 Accepted, cutting response time from O(payload_size)
+        to O(network_upload + Redis_send).
+        """
+        # raw_body is already valid JSON matching the CalculationTask shape
+        # (ProcessExecRequestBody has the same inputs/outputs/response fields;
+        # any extra field like 'mode' is silently ignored by CalculationTask).
+        serialized_data = raw_body.decode()
+
+        send_start = time.monotonic()
+        try:
+            task = self.process_manager.celery_app.send_task(
+                "fastprocesses.execute_process", args=[process_id, serialized_data]
+            )
+        except kombu.exceptions.OperationalError as exc:
+            logger.error(
+                "Broker unavailable when submitting async task for process_id={}: {}",
+                process_id,
+                exc,
+            )
+            raise BrokerUnavailableError(str(exc)) from exc
+        send_elapsed = time.monotonic() - send_start
+        if send_elapsed > 1.0:
+            logger.warning(
+                "Celery async send_task for process_id={} took {:.2f}s",
+                process_id,
+                send_elapsed,
+            )
+
         job_status = JobStatusInfo.model_validate(
             {
                 "jobID": task.id,
@@ -349,7 +411,7 @@ class ProcessManager:
     def execute_process(
         self,
         process_id: str,
-        data: ProcessExecRequestBody,
+        raw_body: bytes,
         execution_mode: ExecutionMode,
     ) -> ProcessExecResponse | Any:
         """
@@ -361,7 +423,8 @@ class ProcessManager:
 
         Args:
             process_id: Identifier for the process to execute
-            data: Contains input parameters and execution mode
+            raw_body: Raw JSON request body bytes
+            execution_mode: Sync or async execution mode
 
         Returns:
             ProcessExecResponse with job status and ID
@@ -378,6 +441,15 @@ class ProcessManager:
 
         logger.debug(f"Process {process_id} found in registry")
 
+        # Parse once with Pydantic v2's Rust-based JSON parser for validation.
+        # For async execution the parsed object is NOT used for re-serialisation;
+        # the original bytes are forwarded to Celery directly.
+        try:
+            data = ProcessExecRequestBody.model_validate_json(raw_body)
+        except ValidationError as e:
+            logger.error(f"Request body validation failed for process {process_id}: {e}")
+            raise InputValidationError(process_id, repr(e))
+
         # Get service and validate inputs
         service = self.process_registry.get_process(process_id)
 
@@ -393,22 +465,19 @@ class ProcessManager:
             logger.error(f"Output validation failed for process {process_id}: {str(e)}")
             raise OutputValidationError(process_id, repr(e))
 
-        # Create calculation task
+        if execution_mode == ExecutionMode.ASYNC:
+            # Fast path: send original bytes to Celery without re-serialisation.
+            # Avoids jsonable_encoder + model_dump + json.dumps — up to 4 full
+            # Python-level passes through the input data — before returning 201.
+            # Cache lookup is handled by the worker (see find_result_in_cache).
+            return AsyncExecutionStrategy(self).execute_raw(process_id, raw_body)
+
+        # Sync path: build CalculationTask for cache key and result retrieval.
+        # Sync execution is intended for fast/small jobs where this overhead is acceptable.
         calculation_task = CalculationTask(
             inputs=data.inputs, outputs=data.outputs, response=data.response
         )
-
-        # Select execution strategy based on mode
-        execution_strategies = {
-            ExecutionMode.SYNC: SyncExecutionStrategy(self),
-            ExecutionMode.ASYNC: AsyncExecutionStrategy(self),
-        }
-
-        strategy: SyncExecutionStrategy | AsyncExecutionStrategy = execution_strategies[
-            execution_mode
-        ]
-
-        return strategy.execute(process_id, calculation_task)
+        return SyncExecutionStrategy(self).execute(process_id, calculation_task)
 
     def get_job_status(self, job_id: str) -> JobStatusInfo:
         """
