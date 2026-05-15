@@ -47,10 +47,6 @@ spec:
             - "0.0.0.0"
             - --port
             - "8000"
-            - --workers
-            - "1"
-            - --log-level
-            - info
             {{- with .Values.api.extraArgs }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

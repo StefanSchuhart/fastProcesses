@@ -44,10 +44,14 @@ api:
   # Extra CLI flags appended to the default uvicorn command (ignored when command is set).
   # Each flag and its value must be a separate list entry.
   # Example:
-  #   - --timeout-keep-alive
-  #   - "120"
-  #   - --limit-concurrency
-  #   - "100"
+      # - --workers
+      # - "1"
+      # - --log-level
+      # - info
+      # - --timeout-keep-alive
+      # - "120"
+      # - --limit-concurrency
+      # - "100"
       # - --limit-max-requests
       # - "10000"
   extraEnvVars: []
