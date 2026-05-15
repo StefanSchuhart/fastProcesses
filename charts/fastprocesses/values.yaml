@@ -47,8 +47,6 @@ api:
   #   - "100"
       # - --limit-max-requests
       # - "10000"
-      # - --timeout-notify
-      # - "30"
   extraEnvVars: []
   # Extra env vars injected into the API container. Supports full K8s env spec,
   # including valueFrom (secretKeyRef, configMapKeyRef, fieldRef, etc.).
