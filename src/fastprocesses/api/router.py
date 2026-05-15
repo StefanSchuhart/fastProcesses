@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException, Query, Response, status
+from fastapi import APIRouter, Header, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 
 from fastprocesses.api.manager import ProcessManager
@@ -165,10 +165,11 @@ def get_router(
     @router.post("/processes/{process_id}/execution")
     async def execute_process(
         process_id: str,
-        request: ProcessExecRequestBody,
+        http_request: Request,
         response: Response,
         prefer: str = Header(None, alias="Prefer"),
     ) -> ProcessExecResponse | OGCExceptionResponse | Any:
+        # Log before body read so this always appears in logs, even for large payloads.
         logger.debug(f"Execute process endpoint accessed for process ID: {process_id}")
 
         execution_mode = ExecutionMode.ASYNC
@@ -177,9 +178,24 @@ def get_router(
 
         logger.debug(f"Execution mode set to: {execution_mode}")
 
+        # Read raw bytes and pass them to the manager unchanged.  For async
+        # execution the manager sends these bytes directly to Celery, avoiding
+        # redundant Python-level re-serialisation of potentially large payloads.
+        try:
+            body = await http_request.body()
+        except Exception as exc:
+            # Starlette raises ClientDisconnect (a subclass of Exception) when the
+            # client closes the TCP connection while the body is still being uploaded.
+            logger.error(
+                "Client disconnected while uploading request body for process {}: {!r}",
+                process_id,
+                exc,
+            )
+            raise HTTPException(status_code=499, detail="Client disconnected during upload")
+
         try:
             result: ProcessExecResponse | Any = process_manager.execute_process(
-                process_id, request, execution_mode
+                process_id, body, execution_mode
             )
 
             # If result is not a ProcessExecResponse, treat as ready result (sync)
