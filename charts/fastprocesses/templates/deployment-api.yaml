@@ -65,9 +65,9 @@ spec:
               path: /health
               port: http
             initialDelaySeconds: 10
-            periodSeconds: 10
-            timeoutSeconds: 2
-            failureThreshold: 3
+            periodSeconds: {{ .Values.probes.api.liveness.periodSeconds | default 10 }}
+            timeoutSeconds: {{ .Values.probes.api.liveness.timeoutSeconds | default 2 }}
+            failureThreshold: {{ .Values.probes.api.liveness.failureThreshold | default 3 }}
           {{- end }}
           envFrom:
             - configMapRef:

@@ -28,6 +28,9 @@ probes:
   api:
     liveness:
       enabled: true
+      periodSeconds: 10
+      timeoutSeconds: 2
+      failureThreshold: 3
 
 # API pod settings
 api:
