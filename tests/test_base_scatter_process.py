@@ -243,6 +243,7 @@ def test_execute_scatter_step_unknown_step_raises(eager_celery, process):
         mock_registry = stack.enter_context(
             patch("fastprocesses.worker.celery_app.get_process_registry")
         )
+        stack.enter_context(patch("fastprocesses.worker.celery_app.update_job_status"))
         stack.enter_context(
             patch("fastprocesses.worker.celery_app._increment_and_report_progress")
         )
