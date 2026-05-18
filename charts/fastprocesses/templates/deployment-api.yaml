@@ -10,6 +10,9 @@ metadata:
     {{- end }}
 
 spec:
+  {{- if not .Values.autoscaling.api.hpa.enabled }}
+  replicas: {{ .Values.replicaCount.api }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "fastprocesses.selectorLabels" . | nindent 6 }}

@@ -32,7 +32,11 @@ probes:
       timeoutSeconds: 2
       failureThreshold: 3
 
-# API pod settings
+# Static replica count used when autoscaling.api.hpa.enabled is false.
+# Ignored when HPA is enabled — HPA controls the count directly.
+replicaCount:
+  api: 1
+
 api:
   # Override the default uvicorn startup command.
   # Default: uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1 --log-level info
