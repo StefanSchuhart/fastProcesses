@@ -27,6 +27,7 @@ from fastprocesses.core.base_process import (
 from fastprocesses.core.exceptions import (
     InputValidationError,
     ProcessClassNotFoundError,
+    SSRFBlockedError,
 )
 from fastprocesses.core.logging import logger
 from fastprocesses.core.models import (
@@ -594,10 +595,26 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
     except ProcessClassNotFoundError as e:
         raise e
 
-    # Second: deep validation of inputs
+    # Second: resolve remote inputs (URI strings → downloaded data)
+    try:
+        update_job_status(
+            job_id,
+            0,
+            "Resolving remote inputs.",
+            job_status,
+        )
+        data = process.resolve_remote_inputs(data)
+    except (SSRFBlockedError, ValueError) as e:
+        logger.error(
+            "Remote input resolution failed for process {}: {}", process_id, e
+        )
+        job_status = JobStatusCode.FAILED
+        update_job_status(job_id, 0, str(e), job_status)
+        raise InputValidationError(process_id, repr(e))
+
+    # Third: deep validation of inputs
     try:
         logger.info(f"Worker validating inputs for process {process_id}")
-        # BUG: if redis returns no job_status, this fails and creates a ValueError too
         update_job_status(
             job_id,
             0,
@@ -608,7 +625,6 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
     except ValueError as e:
         logger.error(f"Input validation failed for process {process_id}: {str(e)}")
         job_status = JobStatusCode.FAILED
-        # BUG: if redis returns no job_status, this fails and creates a ValueError too
         update_job_status(
             job_id,
             0,
@@ -617,7 +633,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
         )
         raise InputValidationError(process_id, repr(e))
 
-    # Third: Execute the process
+    # Fourth: Execute the process
     try:
         logger.info("Worker executing process {}", process_id)
         job_status = JobStatusCode.RUNNING
