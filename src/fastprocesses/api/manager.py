@@ -537,7 +537,7 @@ class ProcessManager:
         if result.state == "SUCCESS":
             logger.info(f"Job ID {job_id} completed successfully")
 
-        task_result: dict[str, Any] = result.result
+        task_result: dict[str, Any] | None = result.result
 
         # Chord-dispatched processes (BaseParallelProcess / BaseScatterProcess)
         # have execute_process return None while the actual merged result is
