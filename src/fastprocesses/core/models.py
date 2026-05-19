@@ -63,7 +63,7 @@ class Schema(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     # --- References ---
-    ref: Optional[str] = Field(None, alias="$ref")
+    ref: Optional[str] = Field(default=None, alias="$ref")
 
     # --- Core keywords ---
     # JSON Schema allows type to be a string OR an array of strings
@@ -106,7 +106,7 @@ class Schema(BaseModel):
     anyOf: Optional[List["Schema"]] = None
     oneOf: Optional[List["Schema"]] = None
     # 'not' is a Python keyword; use alias
-    not_: Optional["Schema"] = Field(None, alias="not")
+    not_: Optional["Schema"] = Field(default=None, alias="not")
 
     # --- Content annotation (draft 2019-09+) ---
     contentMediaType: Optional[str] = None
@@ -276,3 +276,5 @@ class JobStatusCode(StrEnum):
     SUCCESSFUL = "successful"
     FAILED = "failed"
     DISMISSED = "dismissed"
+
+test = Schema()
