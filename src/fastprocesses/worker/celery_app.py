@@ -247,12 +247,12 @@ def execute_parallel_item(
     """
     try:
         item: dict = json.loads(serialized_item)
-        service = cast(
+        process = cast(
             BaseParallelProcess,
             get_process_registry().get_process(process_id),
         )
 
-        partial = service.execute_single(item)
+        partial = process.execute_single(item)
         if inspect.isawaitable(partial):
             if asyncio.iscoroutine(partial):
                 partial = asyncio.run(partial)
@@ -278,7 +278,7 @@ def execute_parallel_item(
 
 
 def _run_parallel(
-    service: BaseParallelProcess,
+    process: BaseParallelProcess,
     process_id: str,
     data: dict,
     job_id: str,
@@ -297,7 +297,7 @@ def _run_parallel(
     ``execute_process`` worker slot is freed instantly.  This is compatible
     with ``worker_prefetch_multiplier=1`` and KEDA autoscaling.
     """
-    items = service.split_inputs(data)
+    items = process.split_inputs(data)
     total = len(items)
 
     if total == 0:
@@ -339,16 +339,16 @@ def finalize_parallel(
     Receives the ordered list of partial results produced by the chord header
     (one dict per ``execute_parallel_item`` task), then:
 
-    1. Calls ``service.merge_results`` to produce the final output.
+    1. Calls ``process.merge_results`` to produce the final output.
     2. Caches the merged result under the same key used by ``CacheResultTask``.
     3. Updates the job status to SUCCESSFUL (or FAILED on error).
     """
-    service = cast(BaseParallelProcess, get_process_registry().get_process(process_id))
+    process = cast(BaseParallelProcess, get_process_registry().get_process(process_id))
     try:
         update_job_status(
             job_id, 95, "Merging parallel results.", JobStatusCode.RUNNING
         )
-        result = service.merge_results(sub_results)
+        result = process.merge_results(sub_results)
         merged = jsonable_encoder(result)
 
         try:
@@ -400,12 +400,12 @@ def execute_scatter_step(
     """
     try:
         data: dict = json.loads(serialized_data)
-        service = cast(
+        process = cast(
             BaseScatterProcess,
             get_process_registry().get_process(process_id),
         )
 
-        steps = get_parallel_steps(service)
+        steps = get_parallel_steps(process)
         if step_name not in steps:
             raise ValueError(
                 f"Step '{step_name}' not found on process '{process_id}'. "
@@ -438,7 +438,7 @@ def execute_scatter_step(
 
 
 def _run_scatter(
-    service: BaseScatterProcess,
+    process: BaseScatterProcess,
     process_id: str,
     data: dict,
     job_id: str,
@@ -454,10 +454,10 @@ def _run_scatter(
     which merges the named results, updates the job status, and caches the
     final output.
     """
-    steps = get_parallel_steps(service)
+    steps = get_parallel_steps(process)
     if not steps:
         raise NotImplementedError(
-            f"{service.__class__.__name__} defines no @parallel_step methods."
+            f"{process.__class__.__name__} defines no @parallel_step methods."
         )
 
     step_names = list(steps)
@@ -500,11 +500,11 @@ def finalize_scatter(
     (one dict per ``execute_scatter_step`` task), re-associates them with
     their step names, then:
 
-    1. Calls ``service.merge_results({step_name: result_dict, ...})``.
+    1. Calls ``process.merge_results({step_name: result_dict, ...})``.
     2. Caches the merged result under the same key used by ``CacheResultTask``.
     3. Updates the job status to SUCCESSFUL (or FAILED on error).
     """
-    service = cast(BaseScatterProcess, get_process_registry().get_process(process_id))
+    process = cast(BaseScatterProcess, get_process_registry().get_process(process_id))
     try:
         named_results = dict(zip(step_names, step_results))
         exec_body: dict = json.loads(serialized_data)
@@ -512,7 +512,7 @@ def finalize_scatter(
         update_job_status(
             job_id, 95, "Merging scatter results.", JobStatusCode.RUNNING
         )
-        result = service.merge_results(named_results, exec_body)
+        result = process.merge_results(named_results, exec_body)
         merged = jsonable_encoder(result)
 
         try:
@@ -581,7 +581,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
     # First: Get the process
     try:
         logger.info(f"Worker retrieving process {process_id} from registry")
-        service = get_process_registry().get_process(process_id)
+        process = get_process_registry().get_process(process_id)
     except ValueError as e:
         job_status = JobStatusCode.FAILED
         update_job_status(
@@ -604,7 +604,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
             "Validating inputs. This may take a while for complex inputs.",
             job_status,
         )
-        service.validate_inputs(data["inputs"])
+        process.validate_inputs(data["inputs"])
     except ValueError as e:
         logger.error(f"Input validation failed for process {process_id}: {str(e)}")
         job_status = JobStatusCode.FAILED
@@ -630,18 +630,18 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
             started=datetime.now(timezone.utc),
         )
 
-        if isinstance(service, BaseParallelProcess):
+        if isinstance(process, BaseParallelProcess):
             # Data fan-out: split → N parallel subtasks (same op) → merge.
             # Chord dispatched; this task returns immediately.
-            _run_parallel(service, process_id, data, job_id, serialized_data_str)
+            _run_parallel(process, process_id, data, job_id, serialized_data_str)
             chord_dispatched = True
-        elif isinstance(service, BaseScatterProcess):
+        elif isinstance(process, BaseScatterProcess):
             # Operation fan-out: N different steps on same input → merge.
             # Chord dispatched; this task returns immediately.
-            _run_scatter(service, process_id, data, job_id, serialized_data_str)
+            _run_scatter(process, process_id, data, job_id, serialized_data_str)
             chord_dispatched = True
         else:
-            result = service.run_execute(
+            result = process.run_execute(
                 data, job_progress_callback=job_progress_callback
             )
 
@@ -651,7 +651,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
             raise  # chord tasks are independent; cannot resume here
         # Attempt to resume the process
         try:
-            result = service.run_execute(
+            result = process.run_execute(
                 data, job_progress_callback=job_progress_callback
             )
 
@@ -683,7 +683,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
         logger.exception(str(e), exc_info=True)
 
         job_message = (
-            f"Error in {service.__class__.__name__}.{user_frame[-1].name} "
+            f"Error in {process.__class__.__name__}.{user_frame[-1].name} "
             f"line: '{user_frame[-1].line}' (lineno: {user_frame[-1].lineno})"
         )
 
@@ -723,7 +723,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
             )
 
     logger.info(
-        f"Process {service.__class__.__name__} execution completed. No result returned"
+        f"Process {process.__class__.__name__} execution completed. No result returned"
     )
     return None
 

@@ -16,7 +16,6 @@ from fastprocesses.common import (
     settings,
     temp_result_cache,
 )
-from fastprocesses.core import config
 from fastprocesses.core.exceptions import (
     BrokerUnavailableError,
     InputValidationError,
@@ -398,7 +397,7 @@ class ProcessManager:
             raise ProcessNotFoundError(process_id)
 
         try:
-            service = self.process_registry.get_process(process_id)
+            process = self.process_registry.get_process(process_id)
 
         except ValueError as e:
             raise e
@@ -406,7 +405,7 @@ class ProcessManager:
             raise e
         
         
-        return service.get_description()
+        return process.get_description()
 
     def execute_process(
         self,
@@ -450,17 +449,17 @@ class ProcessManager:
             logger.error(f"Request body validation failed for process {process_id}: {e}")
             raise InputValidationError(process_id, repr(e))
 
-        # Get service and validate inputs
-        service = self.process_registry.get_process(process_id)
+        # Get process and validate inputs
+        process = self.process_registry.get_process(process_id)
 
         try:
-            service.quick_validate_inputs(data.inputs)
+            process.quick_validate_inputs(data.inputs)
         except ValueError as e:
             logger.error(f"Input validation failed for process {process_id}: {str(e)}")
             raise InputValidationError(process_id, repr(e))
 
         try:
-            service.validate_outputs(data.outputs)
+            process.validate_outputs(data.outputs)
         except ValueError as e:
             logger.error(f"Output validation failed for process {process_id}: {str(e)}")
             raise OutputValidationError(process_id, repr(e))
