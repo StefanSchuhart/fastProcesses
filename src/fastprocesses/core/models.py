@@ -60,26 +60,58 @@ class ResponseType(str, Enum):
 
 
 class Schema(BaseModel):
-    type: Optional[str] = None
+    model_config = ConfigDict(populate_by_name=True)
+
+    # --- References ---
+    ref: Optional[str] = Field(None, alias="$ref")
+
+    # --- Core keywords ---
+    # JSON Schema allows type to be a string OR an array of strings
+    type: Optional[Union[str, List[str]]] = None
     format: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    default: Optional[Any] = None
+    const: Optional[Any] = None
+    enum: Optional[List[Any]] = None
+
+    # --- Numeric validation ---
     minimum: Optional[float] = None
     maximum: Optional[float] = None
+    exclusiveMinimum: Optional[float] = None
+    exclusiveMaximum: Optional[float] = None
+    multipleOf: Optional[float] = None
+
+    # --- String validation ---
     minLength: Optional[int] = None
     maxLength: Optional[int] = None
     pattern: Optional[str] = None
-    enum: Optional[List[Any]] = None
+
+    # --- Array validation ---
+    items: Optional[Union["Schema", List["Schema"]]] = None
+    minItems: Optional[int] = None
+    maxItems: Optional[int] = None
+    uniqueItems: Optional[bool] = None
+
+    # --- Object validation ---
     properties: Optional[Dict[str, "Schema"]] = None
+    patternProperties: Optional[Dict[str, "Schema"]] = None
+    additionalProperties: Optional[Union[bool, "Schema"]] = None
     required: Optional[List[str]] = None
-    items: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]] = None
-    oneOf: Optional[List[Dict[str, Any]]] = None
-    allOf: Optional[List[Dict[str, Any]]] = None
+    minProperties: Optional[int] = None
+    maxProperties: Optional[int] = None
+
+    # --- Schema composition ---
+    allOf: Optional[List["Schema"]] = None
+    anyOf: Optional[List["Schema"]] = None
+    oneOf: Optional[List["Schema"]] = None
+    # 'not' is a Python keyword; use alias
+    not_: Optional["Schema"] = Field(None, alias="not")
+
+    # --- Content annotation (draft 2019-09+) ---
     contentMediaType: Optional[str] = None
     contentEncoding: Optional[str] = None
     contentSchema: Optional[str] = None
-    default: Optional[Any] = None
-
-    class Config:
-        exclude_none = True
 
 
 class ProcessInput(BaseModel):
