@@ -90,6 +90,44 @@ class BaseProcess(ABC):
         else:
             return result
 
+    def resolve_remote_inputs(self, exec_body: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Substitutes URI-valued inputs with the downloaded data they reference.
+
+        The default implementation is a **no-op** that returns *exec_body*
+        unchanged, so existing processes are unaffected.
+
+        Override this in subclasses whose inputs may be supplied as URIs
+        instead of inline data.  The worker calls this method *before*
+        ``validate_inputs``, so the resolved data is what gets validated
+        and passed to ``execute``.
+
+        The HTTP fetch, authentication, redirect policy, and SSRF checks are
+        the responsibility of the overriding application — fastprocesses does
+        not impose a specific HTTP client or security policy here.  Raise
+        ``SSRFBlockedError`` or ``ValueError`` for user-facing errors; the
+        worker will mark the job as failed with the error message.
+
+        Example::
+
+            from fastprocesses.core.exceptions import SSRFBlockedError
+
+            def resolve_remote_inputs(self, exec_body: dict) -> dict:
+                url = exec_body["inputs"]["buildings"]
+                if not url.startswith("https://trusted-domain.com/"):
+                    raise SSRFBlockedError("URL not in allowed origins.")
+                response = my_http_client.get(url, timeout=30)
+                response.raise_for_status()
+                inputs = {**exec_body["inputs"], "buildings": response.json()}
+                return {**exec_body, "inputs": inputs}
+
+        Note:
+            The original *exec_body* (containing the URI string) is used for
+            the cache key, not the resolved data.  This keeps cache hits
+            stable across re-runs with the same URI.
+        """
+        return exec_body
+
     def quick_validate_inputs(self, inputs: Dict[str, Any]) -> bool:
         """
         Quickly checks that all required input fields are present.
