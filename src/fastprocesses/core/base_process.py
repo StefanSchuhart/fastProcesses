@@ -170,7 +170,9 @@ class BaseProcess(ABC):
                 )
             input_desc = required_inputs[input_name]
             try:
-                input_schema = input_desc.scheme.model_dump(exclude_unset=True)
+                input_schema = input_desc.scheme.model_dump(
+                    exclude_unset=True, by_alias=True
+                )
                 jsonschema_validate(
                     instance=input_value,
                     schema=input_schema,
@@ -179,7 +181,7 @@ class BaseProcess(ABC):
             except JSONSchemaValidationError as e:
                 raise ValueError(
                     f"Input '{input_name}' validation failed: {e.message}. "
-                    f"Description: {input_desc.scheme.model_dump(exclude_unset=True)}"
+                    f"Description: {input_desc.scheme.model_dump(exclude_unset=True, by_alias=True)}"
                 )
             except Exception as e:
                 # jsonschema wraps referencing.exceptions.Unresolvable as
