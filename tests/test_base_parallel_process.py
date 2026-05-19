@@ -251,7 +251,7 @@ def test_run_parallel_fans_out_and_merges(
         )
         mock_registry.return_value.get_process.return_value = process
         _run_parallel(
-            service=process,
+            process=process,
             process_id="batch_upper",
             data=exec_body,
             job_id="test-job-42",
@@ -294,7 +294,7 @@ def test_run_parallel_dispatches_one_subtask_per_chunk(
         )
         mock_registry.return_value.get_process.return_value = process
         _run_parallel(
-            service=process,
+            process=process,
             process_id="batch_upper",
             data=exec_body,
             job_id="test-job-43",

@@ -277,7 +277,7 @@ def test_run_scatter_fans_out_and_merges(
         )
         mock_registry.return_value.get_process.return_value = process
         _run_scatter(
-            service=process,
+            process=process,
             process_id="geo_enrich",
             data=EXEC_BODY,
             job_id="test-job-scatter-1",
@@ -321,7 +321,7 @@ def test_run_scatter_dispatches_one_subtask_per_step(
         )
         mock_registry.return_value.get_process.return_value = process
         _run_scatter(
-            service=process,
+            process=process,
             process_id="geo_enrich",
             data=EXEC_BODY,
             job_id="test-job-scatter-2",
