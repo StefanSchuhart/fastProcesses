@@ -163,6 +163,8 @@ class BaseProcess(ABC):
 
         # First, check all provided inputs
         for input_name, input_value in inputs.items():
+            logger.info("Validating input '%s'", input_name)
+
             if input_name not in required_inputs:
                 raise ValueError(
                     f"Provided input '{input_name}' is "
@@ -202,14 +204,6 @@ class BaseProcess(ABC):
                     )
                 else:
                     raise
-
-        # Then, check for missing required inputs
-        for input_name, input_desc in required_inputs.items():
-            if input_desc.minOccurs > 0 and input_name not in inputs:
-                raise ValueError(
-                    f"Missing required input '{input_name}'. "
-                    f"Description: {input_desc.description}"
-                )
 
         return True
 
