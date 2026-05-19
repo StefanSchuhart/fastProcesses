@@ -8,6 +8,7 @@ import yaml
 from fastapi.encoders import jsonable_encoder
 from pydantic import (
     AfterValidator,
+    AliasChoices,
     BaseModel,
     ConfigDict,
     Field,
@@ -60,10 +61,16 @@ class ResponseType(str, Enum):
 
 
 class Schema(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
 
     # --- References ---
-    ref: Optional[str] = Field(default=None, alias="$ref")
+    # validation_alias accepts both 'ref' (Python) and '$ref' (JSON);
+    # serialization_alias ensures model_dump(by_alias=True) outputs '$ref'.
+    ref: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("ref", "$ref"),
+        serialization_alias="$ref",
+    )
 
     # --- Core keywords ---
     # JSON Schema allows type to be a string OR an array of strings
@@ -112,7 +119,6 @@ class Schema(BaseModel):
     contentMediaType: Optional[str] = None
     contentEncoding: Optional[str] = None
     contentSchema: Optional[str] = None
-
 
 class ProcessInput(BaseModel):
     title: str
@@ -276,5 +282,3 @@ class JobStatusCode(StrEnum):
     SUCCESSFUL = "successful"
     FAILED = "failed"
     DISMISSED = "dismissed"
-
-test = Schema()
