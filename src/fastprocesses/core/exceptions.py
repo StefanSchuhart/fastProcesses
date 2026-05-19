@@ -57,3 +57,10 @@ class BrokerUnavailableError(FastProcessesError):
 
     def __init__(self, detail: str):
         super().__init__(f"Broker unavailable: {detail}")
+
+
+class SSRFBlockedError(FastProcessesError):
+    """Raised when a remote URL is blocked by SSRF protection."""
+
+    def __init__(self, reason: str):
+        super().__init__(f"Remote input blocked by SSRF protection: {reason}")
