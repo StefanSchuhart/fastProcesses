@@ -120,7 +120,6 @@ class BaseProcess(ABC):
         Raises:
             ValueError: With detailed error message if validation fails
         """
-        # TODO: consider using fastjsonschema for better performance
         description: ProcessDescription = self.get_description()
         required_inputs = description.inputs
 
