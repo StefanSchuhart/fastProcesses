@@ -3,7 +3,6 @@ import asyncio
 import inspect
 import json
 import signal
-import traceback
 from datetime import datetime, timezone
 from typing import Any, Dict, cast
 
@@ -375,10 +374,13 @@ def finalize_parallel(
         )
         return merged
     except Exception as e:
-        update_job_status(job_id, 0, str(e), JobStatusCode.FAILED)
+        update_job_status(job_id, 0, "Parallel merge failed. See server logs.", JobStatusCode.FAILED)
         logger.error(
-            f"Parallel finalization failed for process {process_id} "
-            f"(job {job_id}): {e}"
+            "Parallel finalization failed for process {} (job {}): {}",
+            process_id,
+            job_id,
+            e,
+            exc_info=True,
         )
         raise
 
@@ -539,10 +541,13 @@ def finalize_scatter(
         )
         return merged
     except Exception as e:
-        update_job_status(job_id, 0, str(e), JobStatusCode.FAILED)
+        update_job_status(job_id, 0, "Scatter merge failed. See server logs.", JobStatusCode.FAILED)
         logger.error(
-            f"Scatter finalization failed for process {process_id} "
-            f"(job {job_id}): {e}"
+            "Scatter finalization failed for process {} (job {}): {}",
+            process_id,
+            job_id,
+            e,
+            exc_info=True,
         )
         raise
 
@@ -692,22 +697,22 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
             job_message = e
             raise e
 
-        # get exception traceback for logging, in other cases
-        # (hiding app interna for security reasons)
-        user_frame = traceback.TracebackException.from_exception(e).stack
-
-        logger.exception(str(e), exc_info=True)
+        # Log the full traceback server-side only — never expose internal
+        # class names, source lines, or line numbers to the client.
+        logger.exception(
+            "Unhandled exception in process '{}' (job {}): {}",
+            process_id,
+            job_id,
+            e,
+            exc_info=True,
+        )
 
         job_message = (
-            f"Error in {process.__class__.__name__}.{user_frame[-1].name} "
-            f"line: '{user_frame[-1].line}' (lineno: {user_frame[-1].lineno})"
+            f"Process execution failed. "
+            f"Consult server logs for details (job_id={job_id})."
         )
 
-        # this information will be written to celery job
-        # results and thus to /job/{job_id}/results
-        raise Exception(
-            job_message
-        )
+        raise Exception(job_message)
 
     finally:
         if chord_dispatched:
