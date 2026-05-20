@@ -600,7 +600,28 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
     except ProcessClassNotFoundError as e:
         raise e
 
-    # Second: resolve remote inputs (URI strings → downloaded data)
+    # Second: validate wire-format inputs against the process description schema
+    try:
+        logger.info(f"Worker validating inputs for process {process_id}")
+        update_job_status(
+            job_id,
+            0,
+            "Validating inputs.",
+            job_status,
+        )
+        process.validate_inputs(data["inputs"])
+    except ValueError as e:
+        logger.error(f"Input validation failed for process {process_id}: {str(e)}")
+        job_status = JobStatusCode.FAILED
+        update_job_status(
+            job_id,
+            0,
+            str(e),
+            job_status,
+        )
+        raise InputValidationError(process_id, repr(e))
+
+    # Third: resolve remote inputs (URI strings → downloaded data)
     try:
         update_job_status(
             job_id,
@@ -617,25 +638,15 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
         update_job_status(job_id, 0, str(e), job_status)
         raise InputValidationError(process_id, repr(e))
 
-    # Third: deep validation of inputs
+    # Fourth: late validation of resolved inputs (process-specific, no-op by default)
     try:
-        logger.info(f"Worker validating inputs for process {process_id}")
-        update_job_status(
-            job_id,
-            0,
-            "Validating inputs. This may take a while for complex inputs.",
-            job_status,
-        )
-        process.validate_inputs(data["inputs"])
+        process.late_validate(data["inputs"])
     except ValueError as e:
-        logger.error(f"Input validation failed for process {process_id}: {str(e)}")
-        job_status = JobStatusCode.FAILED
-        update_job_status(
-            job_id,
-            0,
-            str(e),
-            job_status,
+        logger.error(
+            "Late validation failed for process {}: {}", process_id, e
         )
+        job_status = JobStatusCode.FAILED
+        update_job_status(job_id, 0, str(e), job_status)
         raise InputValidationError(process_id, repr(e))
 
     # Fourth: Execute the process

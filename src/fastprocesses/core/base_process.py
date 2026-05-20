@@ -5,6 +5,7 @@ from typing import Any, Awaitable, ClassVar, Dict, List
 
 from jsonschema import ValidationError as JSONSchemaValidationError
 from jsonschema import validate as jsonschema_validate
+from jsonschema.exceptions import best_match as _jsonschema_best_match
 from pydantic import BaseModel
 from referencing import Registry
 from referencing.exceptions import Unresolvable as _UnresolvableRef
@@ -12,6 +13,18 @@ from referencing.exceptions import Unresolvable as _UnresolvableRef
 from fastprocesses.core.logging import logger
 from fastprocesses.core.models import OutputControl, ProcessDescription
 from fastprocesses.core.types import JobProgressCallback
+
+# Maps JSON Schema primitive type names to their Python equivalents.
+# Used by quick_validate_inputs for a cheap top-level type check.
+_JS_TYPE_TO_PYTHON: Dict[str, Any] = {
+    "string": str,
+    "number": (int, float),
+    "integer": int,
+    "boolean": bool,
+    "array": list,
+    "object": dict,
+    "null": type(None),
+}
 
 
 class BaseProcess(ABC):
@@ -98,9 +111,10 @@ class BaseProcess(ABC):
         unchanged, so existing processes are unaffected.
 
         Override this in subclasses whose inputs may be supplied as URIs
-        instead of inline data.  The worker calls this method *before*
-        ``validate_inputs``, so the resolved data is what gets validated
-        and passed to ``execute``.
+        instead of inline data.  The worker calls this method *after*
+        ``validate_inputs`` so that the process description schema is validated
+        against the wire-format input (the URI reference object), and *before*
+        ``late_validate`` which validates the resolved data.
 
         The HTTP fetch, authentication, redirect policy, and SSRF checks are
         the responsibility of the overriding application — fastprocesses does
@@ -128,21 +142,99 @@ class BaseProcess(ABC):
         """
         return exec_body
 
+    def late_validate(self, inputs: Dict[str, Any]) -> bool:
+        """
+        Process-specific validation of **resolved** inputs, called after
+        :meth:`resolve_remote_inputs` and before ``execute``.
+
+        The default implementation is a **no-op** that always returns ``True``,
+        so existing processes are unaffected.
+
+        Override this in subclasses that need to validate data that was
+        fetched or transformed by ``resolve_remote_inputs`` — for example,
+        validating a downloaded GeoJSON FeatureCollection against a
+        process-specific Pydantic model, or spot-checking the first feature
+        to detect structural problems early.
+
+        Unlike :meth:`validate_inputs`, which uses the generic process
+        description schema, ``late_validate`` has full access to the resolved
+        data and can apply arbitrary business logic.  Raise ``ValueError`` to
+        fail the job with a user-facing message.
+
+        Example::
+
+            from mypackage.models import BuildingFeatureCollection
+
+            def late_validate(self, inputs: dict) -> bool:
+                # Validate the fetched collection against a Pydantic model.
+                # model_validate raises ValidationError on structural problems.
+                BuildingFeatureCollection.model_validate(
+                    inputs["buildings"]
+                )
+                return True
+        """
+        return True
+
     def quick_validate_inputs(self, inputs: Dict[str, Any]) -> bool:
         """
-        Quickly checks that all required input fields are present.
-        Does NOT perform deep schema validation.
+        Cheap structural check run at the API boundary (before the job is queued).
+
+        Catches the three most common user errors without any recursion:
+        1. Unknown field names (e.g. a typo like ``"buldings"`` instead of
+           ``"buildings"``)
+        2. Missing required fields
+        3. Top-level type mismatch (e.g. passing a string where an object is
+           expected)
+
+        Deep schema validation (nested properties, ``oneOf``, ``enum``,
+        ``const``, …) is left to :meth:`validate_inputs` which runs on the
+        worker after the job has been accepted.
         """
         description: ProcessDescription = self.get_description()
-        required_inputs = description.inputs
+        defined_inputs = description.inputs
 
-        # Check for missing required inputs only
-        for input_name, input_desc in required_inputs.items():
-            if input_desc.minOccurs > 0 and input_name not in inputs:
+        # 1. Unknown fields — catches typos before a job is even queued
+        unknown = sorted(k for k in inputs if k not in defined_inputs)
+        if unknown:
+            raise ValueError(
+                f"Unknown input(s): {', '.join(unknown)}. "
+                f"Expected: {', '.join(sorted(defined_inputs))}."
+            )
+
+        # 2. Missing required fields
+        for name, desc in defined_inputs.items():
+            if desc.minOccurs > 0 and name not in inputs:
                 raise ValueError(
-                    f"Missing required input '{input_name}'. "
-                    f"Description: {input_desc.description}"
+                    f"Missing required input '{name}'. "
+                    f"Description: {desc.description}"
                 )
+
+        # 3. Top-level type check — O(n inputs), no recursion into nested data
+        for name, value in inputs.items():
+            schema_type = defined_inputs[name].scheme.type
+            if schema_type is None:
+                continue  # no top-level type declared (e.g. pure oneOf/allOf)
+            declared = [schema_type] if isinstance(schema_type, str) else schema_type
+            expected = tuple(
+                py_t
+                for js_t in declared
+                if (py_t := _JS_TYPE_TO_PYTHON.get(js_t)) is not None
+            )
+            if not expected:
+                continue
+            # bool is a subclass of int; reject it unless "boolean" is declared
+            if isinstance(value, bool) and "boolean" not in declared:
+                raise ValueError(
+                    f"Input '{name}' has wrong type: "
+                    f"expected {', '.join(declared)}, got boolean."
+                )
+            if not isinstance(value, expected):
+                raise ValueError(
+                    f"Input '{name}' has wrong type: "
+                    f"expected {', '.join(declared)}, "
+                    f"got {type(value).__name__}."
+                )
+
         return True
 
     def validate_inputs(self, inputs: Dict[str, Any]) -> bool:
@@ -181,9 +273,23 @@ class BaseProcess(ABC):
                     registry=self.schema_registry,
                 )
             except JSONSchemaValidationError as e:
+                # For oneOf/anyOf/allOf, best_match picks the deepest,
+                # most specific sub-error instead of the generic top-level one.
+                leaf = _jsonschema_best_match(e.context) if e.context else e
+                # Build a readable path: features[42].properties.area_m2
+                path_parts: list[str] = []
+                for step in leaf.absolute_path:
+                    if isinstance(step, int):
+                        if path_parts:
+                            path_parts[-1] += f"[{step}]"
+                        else:
+                            path_parts.append(f"[{step}]")
+                    else:
+                        path_parts.append(str(step))
+                location = ".".join(path_parts) or "(root)"
                 raise ValueError(
-                    f"Input '{input_name}' validation failed: {e.message}. "
-                    f"Description: {input_desc.scheme.model_dump(exclude_unset=True, by_alias=True)}"
+                    f"Input '{input_name}' validation failed: "
+                    f"{leaf.message} (at: {location})."
                 )
             except Exception as e:
                 # jsonschema wraps referencing.exceptions.Unresolvable as
