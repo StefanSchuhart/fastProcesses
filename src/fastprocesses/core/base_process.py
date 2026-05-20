@@ -255,7 +255,7 @@ class BaseProcess(ABC):
 
         # First, check all provided inputs
         for input_name, input_value in inputs.items():
-            logger.info("Validating input '%s'", input_name)
+            logger.info("Validating input '{}', input_name)
 
             if input_name not in required_inputs:
                 raise ValueError(
