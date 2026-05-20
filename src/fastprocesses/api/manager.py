@@ -94,6 +94,12 @@ class AsyncExecutionStrategy(ExecutionStrategy):
             )
             raise BrokerUnavailableError(str(exc)) from exc
         send_elapsed = time.monotonic() - send_start
+        logger.info(
+            "Task queued: process_id={}, job_id={}, mode=async, send_time={:.3f}s",
+            process_id,
+            task.id,
+            send_elapsed,
+        )
         if send_elapsed > 1.0:
             logger.warning(
                 "Celery async send_task for process_id={} took {:.2f}s",
@@ -155,6 +161,13 @@ class AsyncExecutionStrategy(ExecutionStrategy):
             )
             raise BrokerUnavailableError(str(exc)) from exc
         send_elapsed = time.monotonic() - send_start
+        logger.info(
+            "Task queued: process_id={}, job_id={},"
+            " mode=async (raw), send_time={:.3f}s",
+            process_id,
+            task.id,
+            send_elapsed,
+        )
         if send_elapsed > 1.0:
             logger.warning(
                 "Celery async send_task for process_id={} took {:.2f}s",
@@ -218,6 +231,13 @@ class SyncExecutionStrategy(ExecutionStrategy):
                 exc,
             )
             raise BrokerUnavailableError(str(exc)) from exc
+        send_elapsed_sync = time.monotonic() - send_start
+        logger.info(
+            "Task queued: process_id={}, job_id={}, mode=sync, send_time={:.3f}s",
+            process_id,
+            task.id,
+            send_elapsed_sync,
+        )
         send_elapsed = time.monotonic() - send_start
         if send_elapsed > 1.0:
             logger.warning(

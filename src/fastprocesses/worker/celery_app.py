@@ -3,6 +3,8 @@ import asyncio
 import inspect
 import json
 import signal
+import time
+import traceback
 from datetime import datetime, timezone
 from typing import Any, Dict, cast
 
@@ -581,12 +583,16 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
         serialized_data_str = bytes(serialized_data).decode("utf-8")
     data: dict = json.loads(serialized_data_str)
 
-    logger.info(f"Executing process {process_id} with data {serialized_data[:80]}")
     job_id = self.request.id  # Get the task/job ID
+    task_start = time.monotonic()
+    logger.info(
+        "Worker picked up task: process_id={}, job_id={}",
+        process_id,
+        job_id,
+    )
 
     # First: Get the process
     try:
-        logger.info(f"Worker retrieving process {process_id} from registry")
         process = get_process_registry().get_process(process_id)
     except ValueError as e:
         job_status = JobStatusCode.FAILED
@@ -602,7 +608,6 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
 
     # Second: validate wire-format inputs against the process description schema
     try:
-        logger.info(f"Worker validating inputs for process {process_id}")
         update_job_status(
             job_id,
             0,
@@ -651,7 +656,6 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
 
     # Fourth: Execute the process
     try:
-        logger.info("Worker executing process {}", process_id)
         job_status = JobStatusCode.RUNNING
         # BUG: if redis returns no job_status, this fails and creates a ValueError too
         update_job_status(
@@ -701,21 +705,33 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
     except Exception as e:
         # Update job with error status
         job_status = JobStatusCode.FAILED
+        task_elapsed = time.monotonic() - task_start
 
         # decide if its a validation error or a general error
         if isinstance(e, ValueError) or isinstance(e, ValidationError):
-            logger.error(f"Validation error in process {process_id}: {e}")
+            logger.error(
+                "Task failed: process_id={}, job_id={}, duration={:.2f}s, reason={}",
+                process_id,
+                job_id,
+                task_elapsed,
+                e,
+            )
             job_message = e
             raise e
 
         # Log the full traceback server-side only — never expose internal
         # class names, source lines, or line numbers to the client.
-        logger.exception(
-            "Unhandled exception in process '{}' (job {}): {}",
+        logger.error(
+            "Task failed: process_id={}, job_id={}, duration={:.2f}s, reason={}",
             process_id,
             job_id,
+            task_elapsed,
             e,
-            exc_info=True,
+        )
+        logger.debug(
+            "Full traceback for job {}:\n{}",
+            job_id,
+            traceback.format_exc(),
         )
 
         job_message = (
@@ -731,10 +747,13 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
             return None
 
         if result:
-            result_dump = jsonable_encoder(result)
+            task_elapsed = time.monotonic() - task_start
             logger.info(
-                f"Process {process_id} executed "
-                f"successfully with result {json.dumps(result_dump)[:80]}"
+                "Task completed: process_id={}, job_id={},"
+                " duration={:.2f}s",
+                process_id,
+                job_id,
+                task_elapsed,
             )
             job_status = JobStatusCode.SUCCESSFUL
 
