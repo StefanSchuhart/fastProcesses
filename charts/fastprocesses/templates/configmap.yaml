@@ -16,6 +16,7 @@ data:
   FP_CELERY_RESULTS_TTL_DAYS: {{ .Values.config.celery.resultsTtlDays | quote }}
   FP_CELERY_TASK_TLIMIT_HARD: {{ .Values.config.celery.taskTlimitHard | quote }}
   FP_CELERY_TASK_TLIMIT_SOFT: {{ .Values.config.celery.taskTlimitSoft | quote }}
+  FP_CELERY_QUEUE: {{ index .Values.worker.queues 0 | quote }}
   FP_RESULTS_TEMP_TTL_HOURS: {{ .Values.config.resultCache.resultsTempTtlHours | quote }}
   FP_JOB_STATUS_TTL_DAYS: {{ .Values.config.celery.jobStatusTtlDays | quote }}
   FP_SYNC_EXECUTION_TIMEOUT_SECONDS: {{ .Values.config.syncExecutionTimeoutSeconds | quote }}
