@@ -102,6 +102,12 @@ celery_app.conf.update(
         "retry_on_timeout": True,
         "retry_on_connection_failure": True,
     },
+    # Re-queue the task immediately when the worker process dies (OOM kill, pod
+    # eviction, etc.) instead of waiting for visibility_timeout to expire.
+    # Without this, KEDA sees queue depth=0 (task is in unacked, not in queue)
+    # and never spawns a replacement worker — the task is orphaned until
+    # visibility_timeout (currently >30 min) elapses.
+    task_reject_on_worker_lost=True,
 )
 
 for key, value in celery_app.conf.items():
