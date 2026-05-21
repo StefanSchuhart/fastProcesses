@@ -121,8 +121,6 @@ config:
 
   syncExecutionTimeoutSeconds: 10
 
-  logLevel: "INFO"
-
   # Arbitrary extra key/value string pairs added to the ConfigMap.
   # Use this for app-specific environment variables that are plain strings.
   # For variables requiring valueFrom (secrets, etc.) use api.extraEnvVars / worker.extraEnvVars.

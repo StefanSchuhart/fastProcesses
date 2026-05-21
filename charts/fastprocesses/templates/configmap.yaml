@@ -20,7 +20,6 @@ data:
   FP_RESULTS_TEMP_TTL_HOURS: {{ .Values.config.resultCache.resultsTempTtlHours | quote }}
   FP_JOB_STATUS_TTL_DAYS: {{ .Values.config.celery.jobStatusTtlDays | quote }}
   FP_SYNC_EXECUTION_TIMEOUT_SECONDS: {{ .Values.config.syncExecutionTimeoutSeconds | quote }}
-  FP_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
   FP_CELERY_JOB_MODE: {{ (or .Values.autoscaling.worker.keda.useScaledJob .Values.config.celery.jobMode) | quote }}
   FP_CLEAR_REGISTRY_ON_STARTUP: {{ .Values.api.clearRegistryOnStartup | quote }}
   {{- range $key, $val := .Values.config.extraConfigMapData }}
