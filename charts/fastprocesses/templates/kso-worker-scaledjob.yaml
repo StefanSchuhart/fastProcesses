@@ -54,6 +54,8 @@ spec:
               - --concurrency=1
               - -Q
               - {{ join "," .Values.worker.queues | quote }}
+              - --without-mingle
+              - --without-gossip
             {{- end }}
             env:
               - name: CELERY_BROKER_PASSWORD
