@@ -41,7 +41,7 @@ class ProcessRegistry:
                 "class_path": f"{process.__module__}.{process.__class__.__name__}",
             }
             logger.debug(
-                f"Process data to be registered:\n{json.dumps(process_data, indent=4)}"
+                f"Process data to be registered:\n{json.dumps(process_data, indent=4)[:50]}"
             )
 
             result = self.redis_connection._execute_redis_command(
