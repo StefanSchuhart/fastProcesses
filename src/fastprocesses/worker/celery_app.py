@@ -8,6 +8,7 @@ import traceback
 from datetime import datetime, timezone
 from typing import Any, Dict, cast
 
+import kombu.exceptions
 from celery import Task, chord
 from celery.exceptions import SoftTimeLimitExceeded
 from fastapi.encoders import jsonable_encoder
@@ -574,6 +575,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
         )
 
     chord_dispatched = False  # True when a parallel/scatter chord is dispatched
+    retrying = False  # True when self.retry() is in flight
     result = None
     job_status = JobStatusCode.RUNNING
     job_message = ""
@@ -701,6 +703,21 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
         logger.info(f"Process {process_id} completed after soft time limit")
         job_status = JobStatusCode.SUCCESSFUL
 
+    except kombu.exceptions.OperationalError as e:
+        # Transient broker failure while dispatching the chord (Redis was down).
+        # Retry the whole task so the chord is published once the broker recovers.
+        # The job status stays RUNNING; no result has been produced yet.
+        task_elapsed = time.monotonic() - task_start
+        logger.warning(
+            "Broker connection error dispatching chord for job {} after {:.2f}s, "
+            "scheduling retry: {}",
+            job_id,
+            task_elapsed,
+            e,
+        )
+        retrying = True
+        raise self.retry(exc=e, countdown=10, max_retries=6)
+
     # intercept all errors coming from the process` execution method
     except Exception as e:
         # Update job with error status
@@ -746,7 +763,11 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
             # finalize_parallel / finalize_scatter handles status + caching.
             return None
 
-        if result:
+        if retrying:
+            # celery.exceptions.Retry is propagating — do not return here
+            # (a return in finally would suppress it) and do not touch job status.
+            pass
+        elif result:
             task_elapsed = time.monotonic() - task_start
             logger.info(
                 "Task completed: process_id={}, job_id={},"
