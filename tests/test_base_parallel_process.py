@@ -25,7 +25,7 @@ from fastprocesses.core.models import (
     ProcessOutputTransmission,
     Schema,
 )
-from fastprocesses.worker.celery_app import (
+from fastprocesses.worker.chord_tasks import (
     _run_parallel,
     execute_parallel_item,
     finalize_parallel,
@@ -215,10 +215,10 @@ def test_execute_parallel_item_task(eager_celery, process):
 
     with ExitStack() as stack:
         mock_registry = stack.enter_context(
-            patch("fastprocesses.worker.celery_app.get_process_registry")
+            patch("fastprocesses.worker.chord_tasks.get_process_registry")
         )
         stack.enter_context(
-            patch("fastprocesses.worker.celery_app._increment_and_report_progress")
+            patch("fastprocesses.worker.chord_tasks._increment_and_report_progress")
         )
         mock_registry.return_value.get_process.return_value = process
         async_result = execute_parallel_item.delay(
@@ -240,14 +240,14 @@ def test_run_parallel_fans_out_and_merges(
     """
     with ExitStack() as stack:
         mock_registry = stack.enter_context(
-            patch("fastprocesses.worker.celery_app.get_process_registry")
+            patch("fastprocesses.worker.chord_tasks.get_process_registry")
         )
-        stack.enter_context(patch("fastprocesses.worker.celery_app.update_job_status"))
+        stack.enter_context(patch("fastprocesses.worker.chord_tasks.update_job_status"))
         stack.enter_context(
-            patch("fastprocesses.worker.celery_app._increment_and_report_progress")
+            patch("fastprocesses.worker.chord_tasks._increment_and_report_progress")
         )
         mock_cache = stack.enter_context(
-            patch("fastprocesses.worker.celery_app.temp_result_cache")
+            patch("fastprocesses.worker.chord_tasks.temp_result_cache")
         )
         mock_registry.return_value.get_process.return_value = process
         _run_parallel(
@@ -280,14 +280,14 @@ def test_run_parallel_dispatches_one_subtask_per_chunk(
 
     with ExitStack() as stack:
         mock_registry = stack.enter_context(
-            patch("fastprocesses.worker.celery_app.get_process_registry")
+            patch("fastprocesses.worker.chord_tasks.get_process_registry")
         )
-        stack.enter_context(patch("fastprocesses.worker.celery_app.update_job_status"))
+        stack.enter_context(patch("fastprocesses.worker.chord_tasks.update_job_status"))
         stack.enter_context(
-            patch("fastprocesses.worker.celery_app._increment_and_report_progress")
+            patch("fastprocesses.worker.chord_tasks._increment_and_report_progress")
         )
         stack.enter_context(
-            patch("fastprocesses.worker.celery_app.temp_result_cache")
+            patch("fastprocesses.worker.chord_tasks.temp_result_cache")
         )
         stack.enter_context(
             patch.object(execute_parallel_item, "s", side_effect=recording_s)
@@ -319,13 +319,13 @@ def test_finalize_parallel_merges_and_caches(eager_celery, process, serialized_d
 
     with ExitStack() as stack:
         mock_registry = stack.enter_context(
-            patch("fastprocesses.worker.celery_app.get_process_registry")
+            patch("fastprocesses.worker.chord_tasks.get_process_registry")
         )
         mock_update = stack.enter_context(
-            patch("fastprocesses.worker.celery_app.update_job_status")
+            patch("fastprocesses.worker.chord_tasks.update_job_status")
         )
         mock_cache = stack.enter_context(
-            patch("fastprocesses.worker.celery_app.temp_result_cache")
+            patch("fastprocesses.worker.chord_tasks.temp_result_cache")
         )
         mock_registry.return_value.get_process.return_value = process
         merged = finalize_parallel(
