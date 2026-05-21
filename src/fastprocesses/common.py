@@ -60,7 +60,10 @@ celery_app = Celery(
     "ogc_processes",
     broker=settings.celery_broker.connection.unicode_string(),
     backend=settings.celery_result.connection.unicode_string(),
-    include=["fastprocesses.worker.celery_app"],  # Ensure the module is included
+    include=[
+        "fastprocesses.worker.celery_app",
+        "fastprocesses.worker.chord_tasks",
+    ],  # Ensure the modules are included
 )
 
 celery_app.conf.update(
