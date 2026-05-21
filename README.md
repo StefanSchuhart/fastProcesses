@@ -488,8 +488,16 @@ RESULTS_TEMP_TTL_HOURS=48 # this period determines how long results can be retri
 !IMPORTANT!: Cache hash key is based on original unprocessed inputs always. This ensures consistent caching and cache retrieval which does not depend on arbitrary processed data, which can change when the process is updated or changed!
 
 ### Version Notes
-- **0.16.0**: Added `BaseParallelProcess` (data fan-out) and `BaseScatterProcess` + `@parallel_step` (operation fan-out); both use Celery chords for non-blocking, KEDA-compatible parallel execution
-- **0.15.0**: Implemented redis retry mechanism
+
+See [CHANGELOG.md](CHANGELOG.md) for the full history.
+
+- **0.20.0**: Internal refactor of `celery_app` into modular components; no public API changes
+- **0.19.0**: `resolve_remote_inputs` hook; `DataFetchError` exception; queue isolation for multi-instance deployments (`celery_queue` setting); process-specific validation hook (`validate_inputs`)
+- **0.18.0**: Generic Helm chart; automated job status counter; `merge_results` receives `exec_body`; large request body handling
+- **0.17.0**: Graceful handling of inaccessible remote JSON schemas
+- **0.16.0**: `BaseParallelProcess` (data fan-out) and `BaseScatterProcess` + `@parallel_step` (operation fan-out); KEDA-compatible Celery chord execution
+- **0.15.0**: Redis retry mechanism
+- **0.14.0**: Renamed settings (`FP_` prefix); HTML landing page with content negotiation
 - **0.14.0**: Renamed settings and allowed to add metadata to server app, added a html landing page
 - **0.13.0**: Validation occurs against schema fragment provided by process description
 - **0.12.0**: results will be retrieved from cache only if inputs and outputs are the same 

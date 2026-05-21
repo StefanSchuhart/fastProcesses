@@ -16,6 +16,104 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - further improve storing jobs and job results in cache using a dedicated object model (eventually using redis_om)
 - implement callback mechanism according to [OGC API Processes requirment class](https://docs.ogc.org/is/18-062r2/18-062r2.html#toc52)
 
+## [0.20]
+
+### [0.20.1] - 2026-05-21
+#### Changed
+- version bump (release candidate promoted)
+
+### [0.20.0] - 2026-05-21
+#### Changed
+- Major internal refactor of `celery_app` into modular components: job status updates, pre-execution pipeline, execution strategies, and chord tasks are now separate modules
+- `celery_app` is now a thin execution wrapper delegating to the extracted components
+- No public API changes
+
+## [0.19]
+
+### [0.19.5] - 2026-05-21
+#### Fixed
+- Workers now cancel tasks and re-queue them on Redis connection loss instead of dropping them
+- Fixed broadcast shutdown bug that incorrectly sent a stop signal to all workers connected to the same Redis instance
+#### Changed
+- Reduced polling interval for more responsive task handling
+- Worker state is stored in Redis for observability
+
+### [0.19.4] - 2026-05-21
+#### Added
+- `celery_queue` setting to target a named Celery queue
+- Queue and process registry isolation enforced: multiple fastprocesses instances can share the same Redis instance without interference
+#### Changed
+- Improved logging of cornerstone events
+
+### [0.19.3] - 2026-05-20
+#### Added
+- Process-specific late validation hook (`validate_inputs`) as an overridable no-op for library users
+#### Fixed
+- Removed duplicate missing required-inputs check
+
+### [0.19.2] - 2026-05-19
+#### Fixed
+- Schema model `$ref` field now correctly uses Pydantic aliases
+
+### [0.19.1] - 2026-05-19
+#### Fixed
+- Default values for Schema model fields were not applied correctly
+
+### [0.19.0] - 2026-05-19
+#### Added
+- `resolve_remote_inputs` hook: workers call this when inputs are referenced by URL rather than provided inline
+- `DataFetchError` exception for clean, user-facing error messages when remote data cannot be fetched
+#### Changed
+- Schema model enforcement applied recursively to nested Schema fields
+- `model_dump` now serialises by alias where required
+- Replaced all remaining "service" terminology with "process" throughout the codebase
+- Internal app details no longer exposed to library users
+
+## [0.18]
+
+### [0.18.4] - 2026-05-15
+#### Added
+- Setting for large dataset support
+#### Changed
+- Improved handling of large request body sizes, reducing Python-level iterations on full body parsing
+
+### [0.18.3] - 2026-05-12
+#### Fixed
+- Job status was not updated from fanout processes (`BaseParallelProcess` / `BaseScatterProcess`)
+- Log message was flooding the console
+
+### [0.18.2] - 2026-05-12
+#### Added
+- JSON schema registry parameter for resolving external schemas
+
+### [0.18.1] - 2026-05-12
+#### Added
+- Automated job status counter — no manual progress updates required in `BaseProcess` subclasses
+#### Fixed
+- Log was flooding the console with the full input data payload
+- Dead code path removed (serialised values always have a `decode` method)
+
+### [0.18.0] - 2026-04-22
+#### Added
+- Generic Helm chart for Kubernetes deployment
+#### Changed
+- `merge_results` now receives `exec_body` as an additional argument so implementations have access to the original inputs if needed
+
+## [0.17]
+
+### [0.17.0] - 2026-04-20
+#### Added
+- Graceful handling of inaccessible remote JSON schemas (returns a specific exception instead of crashing)
+- Extended CI test matrix to cover additional Python versions
+
+## [0.16]
+
+### [0.16.0] - 2026-03-12
+#### Added
+- `BaseParallelProcess` for data fan-out (split → map → merge): splits a large input into chunks, processes each on a separate worker, merges partial results
+- `BaseScatterProcess` + `@parallel_step` decorator for operation fan-out: runs multiple independent operations on the same input concurrently and merges named results
+- Both patterns use Celery chords — the orchestrating task returns immediately, making them fully compatible with KEDA autoscaling
+
 ## [0.15] - dev
 
 ### [0.15.5] - 2025-07-02
