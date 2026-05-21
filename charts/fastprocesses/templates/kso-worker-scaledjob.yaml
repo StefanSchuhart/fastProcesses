@@ -6,7 +6,7 @@ metadata:
   labels:
     {{- include "fastprocesses.labels" . | nindent 4 }}
 spec:
-  pollingInterval: 10
+  pollingInterval: 5
   successfulJobsHistoryLimit: 5
   failedJobsHistoryLimit: 5
   maxReplicaCount: {{ .Values.autoscaling.worker.keda.maxReplicas }}
@@ -102,7 +102,7 @@ spec:
       metadata:
         address: "{{ .Values.config.celery.brokerHost }}:{{ .Values.config.celery.brokerPort }}"
         listName: {{ index .Values.worker.queues 0 | quote }}
-        listLength: {{ .Values.autoscaling.worker.keda.queueLength | quote }}
+        listLength: "1"
         dbIndex: {{ .Values.config.celery.brokerDb | quote }}
         {{- if .Values.config.celery.existingSecret }}
         authenticationRef:
