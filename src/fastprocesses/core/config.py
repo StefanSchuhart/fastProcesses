@@ -74,6 +74,10 @@ class OGCProcessesSettings(BaseSettings):
     FP_CELERY_RESULTS_TTL_DAYS: int = 365
     FP_CELERY_TASK_TLIMIT_HARD: int = 900 # seconds
     FP_CELERY_TASK_TLIMIT_SOFT: int = 600 # seconds
+    FP_CELERY_QUEUE: str = Field(
+        default="celery",
+        description="Celery queue name for task routing. Must match the worker -Q flag.",
+    )
     FP_CELERY_JOB_MODE: bool = Field(
         default=False,
         description="Enable job mode for graceful shutdown after task completion"

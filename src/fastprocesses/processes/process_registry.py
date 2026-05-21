@@ -15,7 +15,7 @@ class ProcessRegistry:
     """Manages the registration and retrieval of available processs (processes)."""
 
     def __init__(self, redis_connection: RedisConnection | None = None):
-        self.registry_key = "process_registry"
+        self.registry_key = f"process_registry:{settings.FP_CELERY_QUEUE}"
         if redis_connection is None:
             redis_connection = RedisConnection(str(settings.results_cache.connection))
         self.redis_connection = redis_connection

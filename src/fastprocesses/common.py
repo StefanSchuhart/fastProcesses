@@ -65,6 +65,7 @@ celery_app = Celery(
 )
 
 celery_app.conf.update(
+    task_default_queue=settings.FP_CELERY_QUEUE,
     task_serializer="custom_json",
     result_serializer="custom_json",
     accept_content=["custom_json", "json"],  # Accept only the custom serializer
