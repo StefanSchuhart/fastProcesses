@@ -38,6 +38,7 @@
                 "-A",
                 "fastprocesses.worker.celery_app",
                 "worker",
+                "-Q", "example",
                 "--loglevel=debug",
                 "--pool",
                 "solo"
@@ -58,6 +59,7 @@
                 "-A",
                 "fastprocesses.worker.celery_app",
                 "worker",
+                "-Q", "${env:FP_CELERY_QUEUE}",
                 "--loglevel=debug",
                 "--concurrency=1",
                 "--max-tasks-per-child=1"
