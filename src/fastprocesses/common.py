@@ -81,6 +81,10 @@ celery_app.conf.update(
     worker_send_task_events=True,  # Enable events to track task progress
     worker_prefetch_multiplier=1,  # one worker, one task: dont hold tasks in memory (needed for kedas and queue scaling based scaling)
     task_acks_late=True,  # Acknowledge the task only after it has been executed and finished
+    # Cancel in-flight acks_late tasks on broker loss so they are requeued on reconnect.
+    # Without this, a broker crash leaves tasks running but unacknowledgeable — they
+    # never re-enter the queue. Default becomes True in Celery 6.0.
+    worker_cancel_long_running_tasks_on_connection_loss=True,
     # Connection settings for better resilience
     broker_transport_options={
         "visibility_timeout": settings.FP_CELERY_TASK_TLIMIT_HARD
