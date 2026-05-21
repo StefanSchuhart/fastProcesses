@@ -25,11 +25,6 @@ from fastprocesses.core.base_process import (
     BaseScatterProcess,
     get_parallel_steps,
 )
-from fastprocesses.core.exceptions import (
-    InputValidationError,
-    ProcessClassNotFoundError,
-    SSRFBlockedError,
-)
 from fastprocesses.core.logging import logger
 from fastprocesses.core.models import (
     CalculationTask,
@@ -40,6 +35,11 @@ from fastprocesses.worker.job_status import (
     _cleanup_progress_counter,
     _increment_and_report_progress,
     update_job_status,
+)
+from fastprocesses.worker.pipeline import (
+    _deserialize,
+    _load_process,
+    _run_pipeline,
 )
 
 # NOTE: Cache hash key is based on original unprocessed inputs always
@@ -428,11 +428,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
     result = None
     job_status = JobStatusCode.RUNNING
     job_message = ""
-    if isinstance(serialized_data, str):
-        serialized_data_str: str = serialized_data
-    else:
-        serialized_data_str = bytes(serialized_data).decode("utf-8")
-    data: dict = json.loads(serialized_data_str)
+    data, serialized_data_str = _deserialize(serialized_data)
 
     job_id = self.request.id  # Get the task/job ID
     task_start = time.monotonic()
@@ -442,70 +438,10 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
         job_id,
     )
 
-    # First: Get the process
-    try:
-        process = get_process_registry().get_process(process_id)
-    except ValueError as e:
-        job_status = JobStatusCode.FAILED
-        update_job_status(
-            job_id,
-            0,
-            f"Process '{process_id}' not found.",
-            job_status,
-        )
-        raise e
-    except ProcessClassNotFoundError as e:
-        raise e
+    process = _load_process(process_id, job_id)
+    data = _run_pipeline(process, process_id, data, job_id)
 
-    # Second: validate wire-format inputs against the process description schema
-    try:
-        update_job_status(
-            job_id,
-            0,
-            "Validating inputs.",
-            job_status,
-        )
-        process.validate_inputs(data["inputs"])
-    except ValueError as e:
-        logger.error(f"Input validation failed for process {process_id}: {str(e)}")
-        job_status = JobStatusCode.FAILED
-        update_job_status(
-            job_id,
-            0,
-            str(e),
-            job_status,
-        )
-        raise InputValidationError(process_id, repr(e))
-
-    # Third: resolve remote inputs (URI strings → downloaded data)
-    try:
-        update_job_status(
-            job_id,
-            0,
-            "Resolving remote inputs.",
-            job_status,
-        )
-        data = process.resolve_remote_inputs(data)
-    except (SSRFBlockedError, ValueError) as e:
-        logger.error(
-            "Remote input resolution failed for process {}: {}", process_id, e
-        )
-        job_status = JobStatusCode.FAILED
-        update_job_status(job_id, 0, str(e), job_status)
-        raise InputValidationError(process_id, repr(e))
-
-    # Fourth: late validation of resolved inputs (process-specific, no-op by default)
-    try:
-        process.late_validate(data["inputs"])
-    except ValueError as e:
-        logger.error(
-            "Late validation failed for process {}: {}", process_id, e
-        )
-        job_status = JobStatusCode.FAILED
-        update_job_status(job_id, 0, str(e), job_status)
-        raise InputValidationError(process_id, repr(e))
-
-    # Fourth: Execute the process
+    # Execute the process
     try:
         job_status = JobStatusCode.RUNNING
         # BUG: if redis returns no job_status, this fails and creates a ValueError too
