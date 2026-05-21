@@ -4,7 +4,6 @@ import signal
 import sys
 
 from celery import Celery
-from celery.app.control import Control
 from celery.signals import worker_ready, worker_shutdown, task_postrun
 from fastapi.encoders import jsonable_encoder
 from kombu.serialization import register
@@ -127,12 +126,20 @@ def shutdown_worker_after_task(
     task=None, state=None, retval=None, **kwargs
 ):
     if settings.FP_CELERY_JOB_MODE:
-        logger.info(
-            "Job mode enabled: shutting down "
-            f"worker after completion of task {task_id} (signal)."
-        )
-        control = Control(celery_app)
-        control.shutdown()
+        hostname = task.request.hostname if task and task.request else None
+        if hostname:
+            logger.info(
+                "Job mode: shutting down worker {} after task {}.",
+                hostname,
+                task_id,
+            )
+            celery_app.control.shutdown(destination=[hostname])
+        else:
+            logger.warning(
+                "Job mode: could not determine worker hostname for task {}; "
+                "skipping targeted shutdown.",
+                task_id,
+            )
 
 temp_result_cache = TempResultCache(
     key_prefix="process_results",
