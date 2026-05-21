@@ -6,7 +6,7 @@ metadata:
   labels:
     {{- include "fastprocesses.labels" . | nindent 4 }}
 spec:
-  pollingInterval: 5
+  pollingInterval: 3
   successfulJobsHistoryLimit: 5
   failedJobsHistoryLimit: 5
   maxReplicaCount: {{ .Values.autoscaling.worker.keda.maxReplicas }}
