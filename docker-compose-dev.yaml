@@ -21,7 +21,7 @@ services:
     expose: 
       - ${REDIS_PORT}
     restart: "unless-stopped"
-    command: dragonfly --requirepass "" --appendonly yes
+    command: dragonfly --requirepass ""
     networks: 
       - dev
     volumes:
