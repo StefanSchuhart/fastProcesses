@@ -267,11 +267,17 @@ class BaseProcess(ABC):
                 input_schema = input_desc.scheme.model_dump(
                     exclude_unset=True, by_alias=True
                 )
-                jsonschema_validate(
-                    instance=input_value,
-                    schema=input_schema,
-                    registry=self.schema_registry,
-                )
+                if self.schema_registry is not None:
+                    jsonschema_validate(
+                        instance=input_value,
+                        schema=input_schema,
+                        registry=self.schema_registry,
+                    )
+                else:
+                    jsonschema_validate(
+                        instance=input_value,
+                        schema=input_schema,
+                    )
             except JSONSchemaValidationError as e:
                 # For oneOf/anyOf/allOf, best_match picks the deepest,
                 # most specific sub-error instead of the generic top-level one.
