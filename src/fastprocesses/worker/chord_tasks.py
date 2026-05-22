@@ -22,24 +22,58 @@ from fastprocesses.worker.job_status import (
 )
 
 
+# ---------------------------------------------------------------------------
+# Claim-check key helpers
+#
+# Large payloads are stored in temp_result_cache under these keys so that
+# Celery task messages in the broker only carry small string references.
+# This prevents the broker queue from growing proportionally to the number
+# of scatter/parallel steps and decouples payload memory pressure from the
+# task-queue infrastructure.
+# ---------------------------------------------------------------------------
+
+
+def _payload_key(job_id: str) -> str:
+    """Scatter: stores {"step_input": data, "original_input": original_dict}."""
+    return f"chord:payload:{job_id}"
+
+
+def _item_key(job_id: str, index: int) -> str:
+    """Parallel: stores one split item."""
+    return f"chord:item:{job_id}:{index}"
+
+
+def _meta_key(job_id: str) -> str:
+    """Parallel finalize: stores the original input dict."""
+    return f"chord:meta:{job_id}"
+
+
+def _result_key(job_id: str, identifier: str) -> str:
+    """Subtask result: stored in temp_result_cache, not in the Celery result backend."""
+    return f"chord:result:{job_id}:{identifier}"
+
+
 @celery_app.task(bind=True, name="fastprocesses.execute_parallel_item")
 def execute_parallel_item(
-    self, process_id: str, job_id: str, total: int, serialized_item: str
+    self, process_id: str, job_id: str, total: int, item_key: str
 ) -> dict:
     """
     Executes a single parallel work item for a ``BaseParallelProcess``.
 
-    This task is dispatched by the ``execute_process`` task (via a Celery
-    ``group``) when the target process is a ``BaseParallelProcess``.  It
-    calls ``execute_single`` on the process instance and returns the result
-    as a plain dict so that Celery can serialise it through the result backend.
-
-    After a successful execution the task atomically increments a Redis
-    counter shared by all sibling tasks and updates the parent job's progress
-    to ``(n_done / total) * 90 %``.
+    The item data is loaded from ``temp_result_cache`` via the claim-check
+    key ``item_key`` so that the broker task message only carries a short
+    string.  The result is stored back in ``temp_result_cache`` and only a
+    tiny marker dict ``{"__claim_check__": rkey}`` is returned through the
+    Celery result backend, keeping result-backend memory usage negligible
+    regardless of payload size.
     """
+    item = temp_result_cache.get(item_key)
+    if item is None:
+        raise RuntimeError(
+            f"Claim-check data not found in cache for key '{item_key}'. "
+            "The temp_result_cache entry may have expired or been evicted."
+        )
     try:
-        item: dict = json.loads(serialized_item)
         process = cast(
             BaseParallelProcess,
             get_process_registry().get_process(process_id),
@@ -57,8 +91,10 @@ def execute_parallel_item(
                 partial = asyncio.run(_await())
 
         result = jsonable_encoder(partial)
+        rkey = _result_key(job_id, self.request.id)
+        temp_result_cache.put(key=rkey, value=result)
         _increment_and_report_progress(job_id, total)
-        return result
+        return {"__claim_check__": rkey}
     except Exception as exc:
         update_job_status(
             job_id,
@@ -78,17 +114,9 @@ def _run_parallel(
     serialized_data: str,
 ) -> None:
     """
-    Dispatches a Celery chord for a ``BaseParallelProcess`` and returns
-    immediately — no blocking poll.
-
-    The chord header contains one ``execute_parallel_item`` task per item
-    returned by ``split_inputs``.  Once all header tasks have completed the
-    chord automatically triggers ``finalize_parallel``, which merges the
-    results, updates the job status, and caches the final output.
-
-    Because this function returns before any subtask runs, the parent
-    ``execute_process`` worker slot is freed instantly.  This is compatible
-    with ``worker_prefetch_multiplier=1`` and KEDA autoscaling.
+    Stores split items and original input in ``temp_result_cache``
+    (claim-check) then dispatches a Celery chord without embedding large
+    payloads in task messages.
     """
     items = process.split_inputs(data)
     total = len(items)
@@ -104,19 +132,23 @@ def _run_parallel(
         f"{total} subtask(s)."
     )
 
+    item_keys: list[str] = []
+    for i, item in enumerate(items):
+        key = _item_key(job_id, i)
+        temp_result_cache.put(key=key, value=item)
+        item_keys.append(key)
+
+    meta = _meta_key(job_id)
+    temp_result_cache.put(key=meta, value=json.loads(serialized_data))
+
     execute_parallel_item_task = cast(Any, execute_parallel_item)
     finalize_parallel_task = cast(Any, finalize_parallel)
     chord(
         [
-            execute_parallel_item_task.s(
-                process_id,
-                job_id,
-                total,
-                json.dumps(item),
-            )
-            for item in items
+            execute_parallel_item_task.s(process_id, job_id, total, key)
+            for key in item_keys
         ]
-    )(finalize_parallel_task.s(process_id, job_id, serialized_data))
+    )(finalize_parallel_task.s(process_id, job_id, meta))
 
 
 @celery_app.task(name="fastprocesses.finalize_parallel")
@@ -124,29 +156,37 @@ def finalize_parallel(
     sub_results: list[dict],
     process_id: str,
     job_id: str,
-    serialized_data: str,
+    meta_key: str,
 ) -> dict:
     """
     Chord callback for ``BaseParallelProcess``.
 
-    Receives the ordered list of partial results produced by the chord header
-    (one dict per ``execute_parallel_item`` task), then:
-
-    1. Calls ``process.merge_results`` to produce the final output.
-    2. Caches the merged result under the same key used by ``CacheResultTask``.
-    3. Updates the job status to SUCCESSFUL (or FAILED on error).
+    Resolves result claim-checks from ``temp_result_cache``, merges the
+    actual results, caches the final output, and updates the job status.
     """
     process = cast(BaseParallelProcess, get_process_registry().get_process(process_id))
     try:
+        actual_results: list[dict] = []
+        for result_ref in sub_results:
+            rkey = result_ref["__claim_check__"]
+            result = temp_result_cache.get(rkey)
+            if result is None:
+                raise RuntimeError(f"Result claim-check not found in cache: {rkey}")
+            actual_results.append(result)
+            temp_result_cache.delete(rkey)
+
         update_job_status(
             job_id, 95, "Merging parallel results.", JobStatusCode.RUNNING
         )
-        result = process.merge_results(sub_results)
-        merged = jsonable_encoder(result)
+        merged = jsonable_encoder(process.merge_results(actual_results))
+
+        original_input = temp_result_cache.get(meta_key)
+        temp_result_cache.delete(meta_key)
 
         try:
-            calculation_task = CalculationTask(**json.loads(serialized_data))
-            temp_result_cache.put(key=calculation_task.celery_key, value=merged)
+            if original_input is not None:
+                calculation_task = CalculationTask(**original_input)
+                temp_result_cache.put(key=calculation_task.celery_key, value=merged)
             # Also store under job_id so get_job_result can retrieve it when
             # execute_process returned None (chord-dispatched tasks).
             temp_result_cache.put(key=job_id, value=merged)
@@ -180,22 +220,25 @@ def finalize_parallel(
 
 @celery_app.task(bind=True, name="fastprocesses.execute_scatter_step")
 def execute_scatter_step(
-    self, process_id: str, job_id: str, total: int, step_name: str, serialized_data: str
+    self, process_id: str, job_id: str, total: int, step_name: str, payload_key: str
 ) -> dict:
     """
     Executes one ``@parallel_step`` of a ``BaseScatterProcess``.
 
-    This task is dispatched by the ``execute_process`` task (via a Celery
-    ``group``) when the target process is a ``BaseScatterProcess``.  It calls
-    the named step method on the process instance and returns the result as a
-    plain dict so that Celery can serialise it through the result backend.
-
-    After a successful execution the task atomically increments a Redis
-    counter shared by all sibling tasks and updates the parent job's progress
-    to ``(n_done / total) * 90 %``.
+    Input data is loaded from ``temp_result_cache`` via ``payload_key`` to
+    avoid embedding the full dataset in every broker task message.  The
+    result is stored back in ``temp_result_cache`` under a deterministic key
+    ``chord:result:{job_id}:{step_name}`` and only a tiny marker dict is
+    returned through the Celery result backend.
     """
+    payload = temp_result_cache.get(payload_key)
+    if payload is None:
+        raise RuntimeError(
+            f"Claim-check payload not found in cache for key '{payload_key}'. "
+            "The temp_result_cache entry may have expired or been evicted."
+        )
+    data: dict = payload["step_input"]
     try:
-        data: dict = json.loads(serialized_data)
         process = cast(
             BaseScatterProcess,
             get_process_registry().get_process(process_id),
@@ -220,8 +263,10 @@ def execute_scatter_step(
                 partial = asyncio.run(_await())
 
         result = jsonable_encoder(partial)
+        rkey = _result_key(job_id, step_name)
+        temp_result_cache.put(key=rkey, value=result)
         _increment_and_report_progress(job_id, total)
-        return result
+        return {"__claim_check__": rkey}
     except Exception as exc:
         update_job_status(
             job_id,
@@ -241,14 +286,10 @@ def _run_scatter(
     serialized_data: str,
 ) -> None:
     """
-    Dispatches a Celery chord for a ``BaseScatterProcess`` and returns
-    immediately — no blocking poll.
-
-    The chord header contains one ``execute_scatter_step`` task per
-    ``@parallel_step`` method, all receiving the *same* serialised *data*.
-    Once all steps have completed the chord triggers ``finalize_scatter``,
-    which merges the named results, updates the job status, and caches the
-    final output.
+    Stores the chord payload in ``temp_result_cache`` (claim-check) and
+    dispatches a Celery chord without embedding large payloads in task
+    messages.  All scatter steps share the same input data, so only one
+    cache entry is needed regardless of the number of steps.
     """
     steps = get_parallel_steps(process)
     if not steps:
@@ -258,27 +299,29 @@ def _run_scatter(
 
     step_names = list(steps)
     total = len(step_names)
-    serialized_input = json.dumps(data)
 
     logger.info(
         f"Dispatching scatter chord for process {process_id}: "
         f"{total} step(s): {step_names}."
     )
 
+    pkey = _payload_key(job_id)
+    temp_result_cache.put(
+        key=pkey,
+        value={
+            "step_input": data,
+            "original_input": json.loads(serialized_data),
+        },
+    )
+
     execute_scatter_step_task = cast(Any, execute_scatter_step)
     finalize_scatter_task = cast(Any, finalize_scatter)
     chord(
         [
-            execute_scatter_step_task.s(
-                process_id,
-                job_id,
-                total,
-                name,
-                serialized_input,
-            )
+            execute_scatter_step_task.s(process_id, job_id, total, name, pkey)
             for name in step_names
         ]
-    )(finalize_scatter_task.s(step_names, process_id, job_id, serialized_data))
+    )(finalize_scatter_task.s(step_names, process_id, job_id, pkey))
 
 
 @celery_app.task(name="fastprocesses.finalize_scatter")
@@ -287,23 +330,29 @@ def finalize_scatter(
     step_names: list[str],
     process_id: str,
     job_id: str,
-    serialized_data: str,
+    payload_key: str,
 ) -> dict:
     """
     Chord callback for ``BaseScatterProcess``.
 
-    Receives the ordered list of per-step results produced by the chord header
-    (one dict per ``execute_scatter_step`` task), re-associates them with
-    their step names, then:
-
-    1. Calls ``process.merge_results({step_name: result_dict, ...})``.
-    2. Caches the merged result under the same key used by ``CacheResultTask``.
-    3. Updates the job status to SUCCESSFUL (or FAILED on error).
+    Resolves result claim-checks and the original input from
+    ``temp_result_cache``, merges the step results, caches the final output,
+    and updates the job status.
     """
     process = cast(BaseScatterProcess, get_process_registry().get_process(process_id))
     try:
-        named_results = dict(zip(step_names, step_results))
-        exec_body: dict = json.loads(serialized_data)
+        named_results: dict[str, dict] = {}
+        for step_name, result_ref in zip(step_names, step_results):
+            rkey = result_ref["__claim_check__"]
+            result = temp_result_cache.get(rkey)
+            if result is None:
+                raise RuntimeError(f"Result claim-check not found in cache: {rkey}")
+            named_results[step_name] = result
+            temp_result_cache.delete(rkey)
+
+        payload = temp_result_cache.get(payload_key)
+        temp_result_cache.delete(payload_key)
+        exec_body: dict = payload["original_input"] if payload else {}
 
         update_job_status(
             job_id, 95, "Merging scatter results.", JobStatusCode.RUNNING
@@ -312,10 +361,9 @@ def finalize_scatter(
         merged = jsonable_encoder(result)
 
         try:
-            calculation_task = CalculationTask(**json.loads(serialized_data))
+            calculation_task = CalculationTask(**exec_body)
             temp_result_cache.put(key=calculation_task.celery_key, value=merged)
-            # Also store under job_id so get_job_result can retrieve it when
-            # execute_process returned None (chord-dispatched tasks).
+            # Also store under job_id so get_job_result can retrieve it.
             temp_result_cache.put(key=job_id, value=merged)
             logger.info(
                 f"Cached scatter result for process {process_id} (job {job_id})."
