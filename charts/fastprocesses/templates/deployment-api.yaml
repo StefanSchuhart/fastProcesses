@@ -19,6 +19,11 @@ spec:
       component: api
   template:
     metadata:
+      annotations:
+        # Restart pods automatically when the ConfigMap changes (e.g. queue name
+        # or broker host update).  Without this, long-lived API pods keep reading
+        # the stale FP_CELERY_QUEUE value and route tasks to the wrong queue.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
       labels:
         {{- include "fastprocesses.selectorLabels" . | nindent 8 }}
         component: api

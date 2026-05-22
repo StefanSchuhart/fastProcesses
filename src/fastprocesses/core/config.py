@@ -57,6 +57,40 @@ class CeleryConnectionConfig(BaseSettings):
         extra = "ignore"
 
 
+class CeleryResultConnectionConfig(BaseSettings):
+    """Connection config for the Celery result backend.
+
+    Defaults match the broker defaults so that deployments which do not yet
+    have a dedicated result-backend Redis continue to work unchanged.  Set
+    FP_CELERY_RESULT_HOST / PORT / DB to point at a separate Redis instance
+    and decouple result-backend memory pressure from the task queue broker.
+    """
+
+    FP_CELERY_RESULT_HOST: str = "redis"
+    FP_CELERY_RESULT_PORT: int = 6379
+    FP_CELERY_RESULT_DB: str = "0"
+    FP_CELERY_RESULT_PASSWORD: SecretStr = SecretStr("")
+
+    @computed_field
+    @property
+    def connection(self) -> RedisDsn:
+        return RedisDsn.build(
+            scheme="redis",
+            host=self.FP_CELERY_RESULT_HOST,
+            port=self.FP_CELERY_RESULT_PORT,
+            path=self.FP_CELERY_RESULT_DB,
+            password=self.FP_CELERY_RESULT_PASSWORD.get_secret_value(),
+        )
+
+    @classmethod
+    def get(cls) -> "CeleryResultConnectionConfig":
+        return cls()
+
+    class Config:
+        env_file = ".env"
+        extra = "ignore"
+
+
 class OGCProcessesSettings(BaseSettings):
     FP_API_TITLE: str = "OGC API Processes"
     FP_API_VERSION: str = "1.0.0"
@@ -64,8 +98,8 @@ class OGCProcessesSettings(BaseSettings):
     celery_broker: CeleryConnectionConfig = Field(
         default_factory=CeleryConnectionConfig.get
     )
-    celery_result: CeleryConnectionConfig = Field(
-        default_factory=CeleryConnectionConfig.get
+    celery_result: CeleryResultConnectionConfig = Field(
+        default_factory=CeleryResultConnectionConfig.get
     )
     results_cache: ResultCacheConnectionConfig = Field(
         default_factory=ResultCacheConnectionConfig.get

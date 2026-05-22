@@ -83,10 +83,15 @@ celery_app.conf.update(
     worker_send_task_events=True,  # Enable events to track task progress
     worker_prefetch_multiplier=1,  # one worker, one task: dont hold tasks in memory (needed for kedas and queue scaling based scaling)
     task_acks_late=True,  # Acknowledge the task only after it has been executed and finished
-    # Cancel in-flight acks_late tasks on broker loss so they are requeued on reconnect.
-    # Without this, a broker crash leaves tasks running but unacknowledgeable — they
-    # never re-enter the queue. Default becomes True in Celery 6.0.
-    worker_cancel_long_running_tasks_on_connection_loss=True,
+    # Do NOT cancel in-flight tasks when the broker connection is lost.
+    # With True (the Celery 6.0 default), a transient Redis outage triggers a
+    # task-termination cascade that tries to write to the result backend (also
+    # Redis) — which is equally unreachable — and raises a CRITICAL/Unrecoverable
+    # error, crashing the worker before it can reconnect.  The unacked task then
+    # sits in the Redis unacked hash for the full visibility_timeout (35 min).
+    # With False the worker waits for the broker to come back, re-acks cleanly,
+    # and no message is orphaned.
+    worker_cancel_long_running_tasks_on_connection_loss=False,
     # Connection settings for better resilience
     broker_transport_options={
         "visibility_timeout": settings.FP_CELERY_TASK_TLIMIT_HARD
@@ -142,7 +147,18 @@ def shutdown_worker_after_task(
                 hostname,
                 task_id,
             )
-            celery_app.control.shutdown(destination=[hostname])
+            try:
+                celery_app.control.shutdown(destination=[hostname])
+            except Exception as exc:
+                # Broker may be temporarily unreachable (e.g. transient Redis
+                # outage).  Log and move on — the pod will be reaped by K8s
+                # activeDeadlineSeconds rather than a clean control shutdown.
+                logger.warning(
+                    "Job mode: failed to send shutdown command to {} ({}); "
+                    "worker will be reaped by activeDeadlineSeconds.",
+                    hostname,
+                    exc,
+                )
         else:
             logger.warning(
                 "Job mode: could not determine worker hostname for task {}; "
