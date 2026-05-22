@@ -10,7 +10,7 @@ Two layers of coverage:
 """
 import json
 from contextlib import ExitStack
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic import BaseModel
@@ -207,11 +207,12 @@ def test_serial_fallback_calls_execute_single_once_per_chunk(process, exec_body)
 
 def test_execute_parallel_item_task(eager_celery, process):
     """
-    execute_parallel_item is the subtask dispatched per chunk.
-    It calls execute_single on the process and returns a serialisation-safe dict
-    (the form merge_results receives in production).
+    execute_parallel_item loads its item from temp_result_cache (claim-check),
+    runs execute_single, stores the result back in the cache, and returns a
+    tiny marker dict.
     """
     item = {"inputs": {"words": ["foo", "bar", "baz"]}}
+    store = {"chord:item:test-job:0": item}
 
     with ExitStack() as stack:
         mock_registry = stack.enter_context(
@@ -220,24 +221,37 @@ def test_execute_parallel_item_task(eager_celery, process):
         stack.enter_context(
             patch("fastprocesses.worker.chord_tasks._increment_and_report_progress")
         )
-        mock_registry.return_value.get_process.return_value = process
-        async_result = execute_parallel_item.delay(
-            "batch_upper", "test-job", 1, json.dumps(item)
+        mock_cache = stack.enter_context(
+            patch("fastprocesses.worker.chord_tasks.temp_result_cache")
         )
+        mock_cache.get.side_effect = lambda key: store.get(key)
+        mock_cache.put.side_effect = lambda key, value: store.update({key: value})
+        mock_registry.return_value.get_process.return_value = process
 
-    assert async_result.get() == {"words": ["FOO", "BAR", "BAZ"]}
+        result = execute_parallel_item.delay(
+            "batch_upper", "test-job", 1, "chord:item:test-job:0"
+        ).get()
+
+    # Result is a claim-check marker; actual data is in the cache
+    assert "__claim_check__" in result
+    rkey = result["__claim_check__"]
+    assert store[rkey] == {"words": ["FOO", "BAR", "BAZ"]}
 
 
 def test_run_parallel_fans_out_and_merges(
     eager_celery, process, exec_body, serialized_data
 ):
     """
-    _run_parallel dispatches a chord: one execute_parallel_item subtask per
-    chunk + a finalize_parallel callback.  With task_always_eager=True the
-    entire chord runs synchronously, so by the time _run_parallel returns the
-    finalize_parallel callback has already executed and stored the merged
-    result in the cache.
+    _run_parallel stores items in temp_result_cache (claim-check) and
+    dispatches a chord.  With task_always_eager=True and a dict-based cache
+    mock, the whole chord runs synchronously so finalize_parallel has already
+    merged and stored the result by the time _run_parallel returns.
     """
+    store: dict = {}
+
+    def cache_put(key, value):
+        store[key] = value
+
     with ExitStack() as stack:
         mock_registry = stack.enter_context(
             patch("fastprocesses.worker.chord_tasks.get_process_registry")
@@ -249,6 +263,9 @@ def test_run_parallel_fans_out_and_merges(
         mock_cache = stack.enter_context(
             patch("fastprocesses.worker.chord_tasks.temp_result_cache")
         )
+        mock_cache.get.side_effect = lambda key: store.get(key)
+        mock_cache.put.side_effect = cache_put
+        mock_cache.delete.side_effect = lambda key: store.pop(key, None)
         mock_registry.return_value.get_process.return_value = process
         _run_parallel(
             process=process,
@@ -258,18 +275,17 @@ def test_run_parallel_fans_out_and_merges(
             serialized_data=serialized_data,
         )
 
-    # finalize_parallel ran synchronously and called temp_result_cache.put
-    assert mock_cache.put.called
-    cached = mock_cache.put.call_args[1]["value"]
+    # finalize_parallel stored the merged result under the job_id key
+    cached = store["test-job-42"]
     assert cached["words"] == EXPECTED
 
 
 def test_run_parallel_dispatches_one_subtask_per_chunk(
-    eager_celery, process, exec_body, serialized_data
+    process, exec_body, serialized_data
 ):
     """
-    The number of chord-header subtasks equals the number of chunks —
-    confirming every chunk gets its own worker slot in production.
+    The number of chord-header subtasks equals the number of chunks.  Each
+    subtask receives a claim-check key string (not the serialised item data).
     """
     subtask_args: list[tuple] = []
     original_s = execute_parallel_item.s
@@ -278,13 +294,11 @@ def test_run_parallel_dispatches_one_subtask_per_chunk(
         subtask_args.append(args)
         return original_s(*args, **kwargs)
 
+    mock_chord = MagicMock()
     with ExitStack() as stack:
-        mock_registry = stack.enter_context(
-            patch("fastprocesses.worker.chord_tasks.get_process_registry")
-        )
-        stack.enter_context(patch("fastprocesses.worker.chord_tasks.update_job_status"))
+        # Patch chord so no tasks actually run — we only verify dispatch.
         stack.enter_context(
-            patch("fastprocesses.worker.chord_tasks._increment_and_report_progress")
+            patch("fastprocesses.worker.chord_tasks.chord", return_value=mock_chord)
         )
         stack.enter_context(
             patch("fastprocesses.worker.chord_tasks.temp_result_cache")
@@ -292,7 +306,6 @@ def test_run_parallel_dispatches_one_subtask_per_chunk(
         stack.enter_context(
             patch.object(execute_parallel_item, "s", side_effect=recording_s)
         )
-        mock_registry.return_value.get_process.return_value = process
         _run_parallel(
             process=process,
             process_id="batch_upper",
@@ -304,17 +317,26 @@ def test_run_parallel_dispatches_one_subtask_per_chunk(
     expected_chunks = process.split_inputs(exec_body)
     assert len(subtask_args) == len(expected_chunks)  # 3 chunks → 3 subtasks
 
+    # Each subtask receives a unique claim-check key string, not raw item data
+    dispatched_keys = [args[3] for args in subtask_args]
+    assert all(k.startswith("chord:item:") for k in dispatched_keys)
+    assert len(set(dispatched_keys)) == len(dispatched_keys)  # all unique  # 3 chunks → 3 subtasks
+
 
 def test_finalize_parallel_merges_and_caches(eager_celery, process, serialized_data):
     """
-    finalize_parallel is the chord callback.  Given the partial results from
-    all execute_parallel_item tasks it merges them, caches the output, and
-    marks the job as SUCCESSFUL.
+    finalize_parallel resolves claim-check keys, merges the results, caches
+    the output, and marks the job as SUCCESSFUL.
     """
+    job_id = "test-job-44"
+    store = {
+        f"chord:result:{job_id}:id-0": {"words": ["ALPHA", "BETA", "GAMMA"]},
+        f"chord:result:{job_id}:id-1": {"words": ["DELTA", "EPSILON", "ZETA"]},
+        f"chord:result:{job_id}:id-2": {"words": ["ETA"]},
+        f"chord:meta:{job_id}": json.loads(serialized_data),
+    }
     sub_results = [
-        {"words": ["ALPHA", "BETA", "GAMMA"]},
-        {"words": ["DELTA", "EPSILON", "ZETA"]},
-        {"words": ["ETA"]},
+        {"__claim_check__": f"chord:result:{job_id}:id-{i}"} for i in range(3)
     ]
 
     with ExitStack() as stack:
@@ -327,13 +349,15 @@ def test_finalize_parallel_merges_and_caches(eager_celery, process, serialized_d
         mock_cache = stack.enter_context(
             patch("fastprocesses.worker.chord_tasks.temp_result_cache")
         )
+        mock_cache.get.side_effect = lambda key: store.get(key)
+        mock_cache.put.side_effect = lambda key, value: store.update({key: value})
+        mock_cache.delete.side_effect = lambda key: store.pop(key, None)
         mock_registry.return_value.get_process.return_value = process
         merged = finalize_parallel(
-            sub_results, "batch_upper", "test-job-44", serialized_data
+            sub_results, "batch_upper", job_id, f"chord:meta:{job_id}"
         )
 
     assert merged["words"] == EXPECTED
-    assert mock_cache.put.called
-    # Final status update must be SUCCESSFUL
+    assert store.get(job_id) == merged  # stored under job_id
     last_status = mock_update.call_args_list[-1][0][3]
     assert last_status == "successful"
