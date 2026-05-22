@@ -273,14 +273,18 @@ class BatchUpperProcess(BaseParallelProcess):
             "words": ProcessInput(
                 title="Words",
                 description="List of words to upper-case",
-                schema=Schema(type="array", items={"type": "string"}),
+                schema=Schema(
+                    type="array", items=Schema.model_validate({"type": "string"})
+                ),
             )
         },
         outputs={
             "words": ProcessOutput(
                 title="Upper-cased words",
                 description="Every word converted to upper case",
-                schema=Schema(type="array", items={"type": "string"}),
+                schema=Schema(
+                    type="array", items=Schema.model_validate({"type": "string"})
+                ),
             )
         },
         keywords=["text", "parallel"],
