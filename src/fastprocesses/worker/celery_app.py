@@ -89,6 +89,26 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
         job_id,
     )
 
+    # Check cache before running the pipeline — avoids re-execution for
+    # identical inputs (especially important for parallel/scatter processes
+    # where the full chord would otherwise be dispatched again).
+    try:
+        calculation_task = CalculationTask(**data)
+        cached_result = temp_result_cache.get(key=calculation_task.celery_key)
+        if cached_result is not None:
+            logger.info(
+                "Cache hit in worker for process_id={}, job_id={}, key={}",
+                process_id,
+                job_id,
+                calculation_task.celery_key,
+            )
+            update_job_status(
+                job_id, 100, "Result retrieved from cache.", JobStatusCode.SUCCESSFUL
+            )
+            return cached_result
+    except Exception as e:
+        logger.debug("Cache lookup failed (non-fatal), proceeding: {}", e)
+
     process = _load_process(process_id, job_id)
     data = _run_pipeline(process, process_id, data, job_id)
 
