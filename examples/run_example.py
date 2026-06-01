@@ -76,14 +76,52 @@ each receive the full input and run on separate workers simultaneously.
 
     # → 3 tasks land in the Redis queue (one per step)
     # Poll and fetch result the same way as above.
+
+─────────────────────────────────────────────────────────────────────────────
+4.  word_frequency_process — BaseProcessResult + multi-format output
+─────────────────────────────────────────────────────────────────────────────
+
+The process advertises two output formats for the same data.  The client
+requests the desired format in the execute body.  If the format is omitted,
+the resolver picks application/json (highest priority in MEDIA_TYPE_PRIORITY).
+
+JSON output (default):
+
+    curl -s -X POST http://localhost:8000/processes/word_frequency_process/execution \\
+         -H "Content-Type: application/json" \\
+         -H "Prefer: respond-sync" \\
+         -d '{
+               "inputs": {"text": "the cat sat on the mat the cat"},
+               "outputs": {"frequencies": {}},
+               "response": "raw"
+             }'
+
+CSV output (client-requested format):
+
+    curl -s -X POST http://localhost:8000/processes/word_frequency_process/execution \\
+         -H "Content-Type: application/json" \\
+         -H "Prefer: respond-sync" \\
+         -d '{
+               "inputs": {"text": "the cat sat on the mat the cat"},
+               "outputs": {
+                 "frequencies": {
+                   "format": {"mediaType": "text/csv"}
+                 }
+               },
+               "response": "raw"
+             }'
 """
 import asyncio
+import csv
+import io
+import json
 import logging
 from typing import Any, Callable
 
 import uvicorn
 from pydantic import BaseModel
 
+from fastprocesses import BaseProcessResult
 from fastprocesses.api.server import OGCProcessesAPI
 from fastprocesses.core.base_process import (
     BaseParallelProcess,
@@ -189,14 +227,14 @@ class SimpleProcess_2(BaseProcess):
             "input_text": ProcessInput(
                 title="Input Text",
                 description="Text to process",
-                schema=Schema(type="string", minLength=1, maxLength=10),
+                scheme=Schema(type="string", minLength=1, maxLength=10),
             )
         },
         outputs={
             "output_text": ProcessOutput(
                 title="Output Text",
                 description="Processed text",
-                schema=Schema(type="string"),
+                scheme=Schema(type="string"),
             )
         },
         keywords=["text", "processing"],
@@ -273,7 +311,7 @@ class BatchUpperProcess(BaseParallelProcess):
             "words": ProcessInput(
                 title="Words",
                 description="List of words to upper-case",
-                schema=Schema(
+                scheme=Schema(
                     type="array", items=Schema.model_validate({"type": "string"})
                 ),
             )
@@ -282,7 +320,7 @@ class BatchUpperProcess(BaseParallelProcess):
             "words": ProcessOutput(
                 title="Upper-cased words",
                 description="Every word converted to upper case",
-                schema=Schema(
+                scheme=Schema(
                     type="array", items=Schema.model_validate({"type": "string"})
                 ),
             )
@@ -376,14 +414,14 @@ class TextAnalysisProcess(BaseScatterProcess):
             "text": ProcessInput(
                 title="Text",
                 description="The text to analyse",
-                schema=Schema(type="string", minLength=1),
+                scheme=Schema(type="string", minLength=1),
             )
         },
         outputs={
             "result": ProcessOutput(
                 title="Analysis result",
                 description="Combined word count, char count and unique words",
-                schema=Schema(type="object"),
+                scheme=Schema(type="object"),
             )
         },
         keywords=["text", "analysis", "scatter"],
@@ -410,12 +448,133 @@ class TextAnalysisProcess(BaseScatterProcess):
     # --- merge_results receives {step_name: result_dict} and the original
     #     exec_body after all steps finish.
 
-    def merge_results(self, results: dict[str, dict], exec_body: dict) -> TextAnalysisResult:
+    def merge_results(
+        self, results: dict[str, dict], exec_body: dict
+    ) -> TextAnalysisResult:
         return TextAnalysisResult(
             word_count=results["count_words"]["count"],
             char_count=results["count_chars"]["count"],
             unique_words=results["extract_unique"]["words"],
         )
+
+
+# =============================================================================
+# Example 4 — BaseProcessResult + OutputsHandler (multi-format output)
+#
+# The same word-frequency dict is served in two formats depending on what
+# the client requests:
+#   • application/json  →  {"word": count, ...}  (JSON object, default)
+#   • text/csv          →  "word,count\n..."      (plain CSV)
+#
+# The process description advertises both via oneOf on the output schema.
+# The library resolves which format to use, calls the right serializer on
+# WordFrequencyResult, and builds the HTTP response automatically.
+#
+# Pattern:  execute() → dict[str, BaseProcessResult]  (new-style return)
+# =============================================================================
+
+
+class WordFrequencyResult(BaseProcessResult):
+    """Wraps a word-frequency dict and registers JSON and CSV serializers.
+
+    Subclasses BaseProcessResult so the library can call
+    .serialize(media_type) without knowing anything about the data format.
+    """
+
+    def __init__(self, frequencies: dict[str, int]) -> None:
+        super().__init__(frequencies)
+        self.register("application/json", self._to_json)
+        self.register("text/csv", self._to_csv)
+
+    @staticmethod
+    def _to_json(frequencies: dict[str, int]) -> bytes:
+        return json.dumps(frequencies, ensure_ascii=False, indent=2).encode()
+
+    @staticmethod
+    def _to_csv(frequencies: dict[str, int]) -> bytes:
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(["word", "count"])
+        for word, count in sorted(frequencies.items()):
+            writer.writerow([word, count])
+        return buffer.getvalue().encode()
+
+
+@register_process("word_frequency_process")
+class WordFrequencyProcess(BaseProcess):
+    """Counts word frequencies and returns them in JSON or CSV format.
+
+    The output format is chosen by the client via the execute request body:
+        "outputs": {"frequencies": {"format": {"mediaType": "text/csv"}}}
+
+    When no format is specified, application/json is used (it ranks highest
+    in MEDIA_TYPE_PRIORITY among the two advertised types).
+    """
+
+    process_description = ProcessDescription(
+        id="word_frequency_process",
+        title="Word Frequency Process",
+        version="1.0.0",
+        description=(
+            "Counts how often each word appears in the input text. "
+            "Supports application/json and text/csv output formats. "
+            "Demonstrates BaseProcessResult and multi-format output resolution."
+        ),
+        jobControlOptions=[
+            ProcessJobControlOptions.SYNC_EXECUTE,
+            ProcessJobControlOptions.ASYNC_EXECUTE,
+        ],
+        outputTransmission=[ProcessOutputTransmission.VALUE],
+        inputs={
+            "text": ProcessInput(
+                title="Input Text",
+                description="The text whose word frequencies to count",
+                scheme=Schema(type="string", minLength=1),
+            )
+        },
+        outputs={
+            "frequencies": ProcessOutput(
+                title="Word Frequencies",
+                description=(
+                    "Word frequency table. "
+                    "Request application/json for a JSON object or "
+                    "text/csv for a CSV file."
+                ),
+                scheme=Schema(
+                    oneOf=[
+                        # Branch 1: JSON object — not binary, nests inside
+                        # a document response without base64 encoding
+                        Schema(contentMediaType="application/json"),
+                        # Branch 2: CSV string — type=string signals to the
+                        # library that the wire value is an encoded string,
+                        # not a JSON-native object
+                        Schema(
+                            type="string",
+                            contentMediaType="text/csv",
+                        ),
+                    ]
+                ),
+            )
+        },
+        keywords=["text", "frequency", "multi-format"],
+    )
+
+    def execute(
+        self,
+        exec_body: dict[str, Any],
+        job_progress_callback: JobProgressCallback | None = None,
+    ) -> dict[str, Any]:
+        text: str = exec_body["inputs"]["text"]
+        words = text.lower().split()
+
+        frequencies: dict[str, int] = {}
+        for word in words:
+            frequencies[word] = frequencies.get(word, 0) + 1
+
+        # Return a dict (new-style) — the library calls OutputsHandler in the
+        # worker, resolves the requested format, and serializes via
+        # WordFrequencyResult before the result reaches Redis.
+        return {"frequencies": WordFrequencyResult(frequencies)}
 
 
 # Create the FastAPI app
