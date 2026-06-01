@@ -123,7 +123,10 @@ class Schema(BaseModel):
 class ProcessInput(BaseModel):
     title: str
     description: str
-    scheme: Schema = Field(alias="schema")
+    scheme: Schema = Field(
+        validation_alias=AliasChoices("scheme", "schema"),
+        serialization_alias="schema",
+    )
     minOccurs: int = 1
     maxOccurs: Optional[int] = 1
     metadata: Optional[Dict[str, Any]] = None
@@ -140,7 +143,10 @@ class Metadata(BaseModel):
 class ProcessOutput(BaseModel):
     title: str
     description: str
-    scheme: Schema = Field(alias="schema")
+    scheme: Schema = Field(
+        validation_alias=AliasChoices("scheme", "schema"),
+        serialization_alias="schema",
+    )
     metadata: List[Metadata] = []
     keywords: List[str] = []
 
