@@ -533,3 +533,140 @@ process author's project (owns domain knowledge)
 | 5 | Existing exception types in `core/exceptions.py` — avoid duplicating `SerializationError` | `core/exceptions.py` |
 | 6 | Current `__init__.py` exports — check for circular imports before adding new exports | `__init__.py` |
 | 7 | Whether `ProcessDescription.outputs` is `dict[str, ProcessOutput]` and `ProcessOutput.schema` is a `Schema` instance | `core/models.py` |
+
+---
+
+## Caching design — discussion and decisions
+
+### Context (problems observed during implementation)
+
+Two bugs surfaced while testing the `word_frequency_process` example:
+
+1. **Format mismatch on cache hit** — a client requested `text/csv` after a
+   prior `application/json` run with the same inputs. The cached (JSON)
+   serialized envelope was returned unchanged, yielding the wrong format.
+2. **Missing outer output key** — a `document`-mode response lacked the
+   expected `{ "frequencies": ... }` wrapper because the cached `raw`
+   envelope (a bare payload) was returned for a `document`-mode request.
+
+Root cause: the initial cache key was derived only from `inputs + outputs`
+(without `response`), so `raw` and `document` modes, or two different
+`mediaType` values, all mapped to the same cache key.
+
+### Option A — per-format caching (simplest, implemented as interim fix)
+
+**Cache key = hash(inputs + outputs descriptors + response mode)**
+
+- Each distinct combination of inputs / requested output formats / response
+  mode gets its own Redis entry holding a pre-serialized envelope.
+- Implemented in `CalculationTask._hash_dict` (added `response` to the
+  hashed dict inside `core/models.py`).
+- **Downside**: multiplies cache storage when the same inputs are requested
+  in many format combinations; the process runs once per unique combination.
+
+### Option B — canonical-result caching (recommended, not yet implemented)
+
+**Agreed design goal**: the cache should be hit whenever the same inputs and
+the same *logical* outputs (same output IDs, same format hints) are
+requested, regardless of the wire-format details (`raw` vs `document`).
+The process runs once; serialization and response assembly happen on
+retrieval without re-running the process.
+
+**Key insight**: `raw` vs `document` is a presentation choice, not a
+computational one.  Both modes need the same serialized bytes per output;
+only the envelope shape differs.
+
+Concrete design:
+
+1. **Canonical key** — derived from `inputs` + canonical output descriptors
+   (output IDs + their `format.mediaType` if specified, but NOT `response`
+   and NOT transmission-mode details).
+
+2. **Stored value** — a canonical JSON-safe envelope per invocation:
+
+   ```json
+   {
+     "outputs": {
+       "frequencies": {
+         "serialized": { "text/csv": "<base64-encoded-bytes>" },
+         "is_binary": false,
+         "media_type": "text/csv"
+       }
+     }
+   }
+   ```
+
+   For each output the envelope stores a `serialized` map keyed by
+   `mediaType` → base64-encoded bytes.  The worker populates the entry for
+   the mediaType that was actually produced.
+
+3. **Cache write** (inside `execute_process` in `worker/celery_app.py`) —
+   serialize each output via `OutputsHandler._serialize`, store the
+   `serialized` map under the canonical key.
+
+4. **Cache read** (in `api/router.py`) — for each requested output, look up
+   `serialized[requested_mediaType]`.
+   - **Hit** → decode and assemble `raw` or `document` response.
+   - **Miss for this mediaType** (a previously unseen format is requested
+     for the same logical inputs) → re-run serialization from the canonical
+     envelope using `OutputsHandler` and store the result for future reuse.
+
+5. **Cache invalidation / migration** — flush dev Redis after deploying
+   because existing entries have a different structure.  Add a
+   `CACHE_SCHEMA_VERSION` prefix to all keys to allow rolling upgrades.
+
+### Option C — per-output caching (additive, future work)
+
+**Goal**: allow partial cache hits when a client requests a subset of the
+outputs that a previous run already produced.
+
+Example — first call:
+```json
+{ "outputs": { "output1": {}, "output2": {} } }
+```
+Second call (subset):
+```json
+{ "outputs": { "output1": {} } }
+```
+Under per-output caching, `output1` would be served from cache while
+`output2` is skipped entirely (not computed, not returned).
+
+**Design**:
+- Canonical key per *individual output* = hash(inputs + output_id +
+  output_format_hint).
+- On write: store each output's serialized bytes under its own key.
+- On read: for every requested output, attempt a cache lookup.  If all
+  outputs hit, assemble the response.  If any miss, run the full process
+  and repopulate all output keys.
+- **Constraint**: only valid when outputs are independent (the process does
+  not need to compute all outputs jointly).  Process authors who rely on
+  shared intermediate computation must declare outputs as a group or accept
+  re-runs.
+- **Complexity**: moderate.  Requires atomic multi-key writes (Redis MULTI /
+  pipeline), a per-output lookup loop in the router/manager, and
+  documentation for process authors about the independence assumption.
+- **Decision**: defer until canonical-result caching (Option B) is stable.
+
+---
+
+## Implementation steps (current status)
+
+| # | Step | Status | File(s) |
+|---|---|---|---|
+| 1 | `ProcessResult` protocol + `BaseProcessResult` | ✅ Done | `core/output_protocol.py` |
+| 2 | `OutputSchemaResolver` — `oneOf` + OGC hints | ✅ Done | `core/output_schema_resolver.py` |
+| 3 | `OutputsHandler` — resolve → serialize → Response | ✅ Done | `core/outputs_handler.py` |
+| 4 | `SerializationError` in `exceptions.py` | ✅ Done | `core/exceptions.py` |
+| 5 | `models.py` — fix `ProcessOutput.scheme` aliases, `outputs` typing | ✅ Done | `core/models.py` |
+| 6 | `base_process.py` — `execute()` return type, `validate_outputs()` signature | ✅ Done | `core/base_process.py` |
+| 7 | Worker-side serialization — call `OutputsHandler` in `execute_process` | ✅ Done | `worker/celery_app.py` |
+| 8 | Router unwrap — `_unwrap_fp_result` rebuilds `Response` from envelope | ✅ Done | `api/router.py` |
+| 9 | Public exports in `__init__.py` | ✅ Done | `__init__.py` |
+| 10 | Unit tests for resolver + handler | ✅ Done | `tests/test_output_format_resolution.py` |
+| 11 | `word_frequency_process` example (JSON + CSV) | ✅ Done | `examples/run_example.py` |
+| 12 | Interim cache-key fix — include `response` in hash | ✅ Done | `core/models.py` — `CalculationTask._hash_dict` |
+| 13 | Canonical-result caching (Option B) — format-agnostic key + serialized-by-mediaType envelope | 🔲 Pending | `worker/celery_app.py`, `api/router.py`, `core/models.py` |
+| 14 | End-to-end test — same inputs, different formats, cache correctness | 🔲 Pending | `tests/` |
+| 15 | Per-output caching (Option C) | 🔲 Deferred | `worker/celery_app.py`, `api/router.py`, `api/manager.py` |
+| 16 | `_store_and_get_href` — `transmissionMode="reference"` storage | 🔲 Deferred | `core/outputs_handler.py` |
+| 17 | Cache key schema versioning / migration guide | 🔲 Pending | docs / README |
