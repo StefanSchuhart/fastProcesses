@@ -59,6 +59,10 @@ class BrokerUnavailableError(FastProcessesError):
         super().__init__(f"Broker unavailable: {detail}")
 
 
+class SerializationError(FastProcessesError):
+    """Raised when a ProcessResult cannot serialize to the requested media type."""
+
+
 class SSRFBlockedError(FastProcessesError):
     """Raised when a remote URL is blocked by SSRF protection."""
 
