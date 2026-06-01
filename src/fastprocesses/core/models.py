@@ -246,13 +246,22 @@ class CalculationTask(BaseModel):
             if hasattr(self.response, "value")
             else str(self.response)
         )
+        # Use model_dump(mode="json") so nested Pydantic models (OutputControl)
+        # are always serialised to plain dicts — never stringified via
+        # default=str.  This keeps the key consistent whether the task was
+        # built via model_validate (Pydantic coerces nested models) or via
+        # **dict unpacking inside finalize_* chord callbacks (where nested
+        # fields may remain as raw dicts, producing a different str() repr).
+        # Restrict to inputs/outputs to avoid triggering the celery_key
+        # computed field, which would cause infinite recursion.
+        task_data = self.model_dump(mode="json", include={"inputs", "outputs"})
         data = {
-            "inputs": self.inputs,
-            "outputs": self.outputs,
+            "inputs": task_data.get("inputs"),
+            "outputs": task_data.get("outputs"),
             "response": response_value,
         }
         return hashlib.sha256(
-            json.dumps(data, sort_keys=True, default=str).encode()
+            json.dumps(data, sort_keys=True).encode()
         ).hexdigest()
 
     @computed_field
