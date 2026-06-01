@@ -462,7 +462,9 @@ class BaseParallelProcess(BaseProcess, ABC):
         ...
 
     @abstractmethod
-    def merge_results(self, results: List[Dict[str, Any]]) -> BaseModel:
+    def merge_results(
+        self, results: List[Dict[str, Any]]
+    ) -> BaseModel | Dict[str, Any]:
         """
         Combine N partial results into the final output.
 
@@ -472,7 +474,9 @@ class BaseParallelProcess(BaseProcess, ABC):
                 ``execute_single`` (i.e. the output of ``model.model_dump()``).
 
         Returns:
-            The merged ``BaseModel`` to be stored as the job result.
+            A ``BaseModel`` (classic style) or a ``dict[str, ProcessResult]``
+            (new-style, multi-format).  New-style dicts are serialized by the
+            library via ``OutputsHandler`` before the result enters Redis.
         """
         ...
 
@@ -486,7 +490,7 @@ class BaseParallelProcess(BaseProcess, ABC):
         self,
         exec_body: Dict[str, Any],
         job_progress_callback: JobProgressCallback | None = None,
-    ) -> BaseModel:
+    ) -> BaseModel | Dict[str, Any]:
         """
         Serial fallback: runs ``execute_single`` for each item in sequence.
 
@@ -603,7 +607,11 @@ class BaseScatterProcess(BaseProcess, ABC):
     """
 
     @abstractmethod
-    def merge_results(self, results: Dict[str, Any], exec_body: Dict[str, Any]) -> BaseModel:
+    def merge_results(
+        self,
+        results: Dict[str, Any],
+        exec_body: Dict[str, Any],
+    ) -> BaseModel | Dict[str, Any]:
         """
         Combine the results of all parallel steps into the final output.
 
@@ -618,7 +626,9 @@ class BaseScatterProcess(BaseProcess, ABC):
                 results.
 
         Returns:
-            The merged ``BaseModel`` to be stored as the job result.
+            A ``BaseModel`` (classic style) or a ``dict[str, ProcessResult]``
+            (new-style, multi-format).  New-style dicts are serialized by the
+            library via ``OutputsHandler`` before the result enters Redis.
         """
         ...
 
@@ -630,7 +640,7 @@ class BaseScatterProcess(BaseProcess, ABC):
         self,
         exec_body: Dict[str, Any],
         job_progress_callback: JobProgressCallback | None = None,
-    ) -> BaseModel:
+    ) -> BaseModel | Dict[str, Any]:
         """
         Serial fallback: runs each ``@parallel_step`` in definition order.
 

@@ -1,10 +1,13 @@
 import asyncio
+import base64
 import inspect
 import json
 from typing import Any, cast
 
 from celery import chord
 from fastapi.encoders import jsonable_encoder
+
+from fastprocesses.core.outputs_handler import OutputsHandler
 
 from fastprocesses.common import celery_app, temp_result_cache
 from fastprocesses.core.base_process import (
@@ -175,13 +178,31 @@ def finalize_parallel(
             actual_results.append(result)
             temp_result_cache.delete(rkey)
 
+        # Retrieve original request before merging so OutputsHandler can
+        # resolve the requested output format when merge_results returns a
+        # new-style dict[str, ProcessResult].
+        original_input = temp_result_cache.get(meta_key)
+        temp_result_cache.delete(meta_key)
+
         update_job_status(
             job_id, 95, "Merging parallel results.", JobStatusCode.RUNNING
         )
-        merged = jsonable_encoder(process.merge_results(actual_results))
+        merge_result = process.merge_results(actual_results)
 
-        original_input = temp_result_cache.get(meta_key)
-        temp_result_cache.delete(meta_key)
+        if isinstance(merge_result, dict) and original_input is not None:
+            # New-style: delegate serialization to OutputsHandler so ProcessResult
+            # objects are converted to bytes before the envelope enters Redis.
+            http_response = OutputsHandler(
+                process_description=process.process_description,
+                execute_request=original_input,
+            ).build_response(merge_result)
+            merged = {
+                "__fp_result__": True,
+                "body": base64.b64encode(http_response.body).decode("ascii"),
+                "media_type": http_response.media_type,
+            }
+        else:
+            merged = jsonable_encoder(merge_result)
 
         try:
             if original_input is not None:
@@ -207,7 +228,10 @@ def finalize_parallel(
         )
         return merged
     except Exception as e:
-        update_job_status(job_id, 0, "Parallel merge failed. See server logs.", JobStatusCode.FAILED)
+        update_job_status(
+            job_id, 0, "Parallel merge failed. See server logs.",
+            JobStatusCode.FAILED,
+        )
         logger.error(
             "Parallel finalization failed for process {} (job {}): {}",
             process_id,
@@ -357,8 +381,22 @@ def finalize_scatter(
         update_job_status(
             job_id, 95, "Merging scatter results.", JobStatusCode.RUNNING
         )
-        result = process.merge_results(named_results, exec_body)
-        merged = jsonable_encoder(result)
+        merge_result = process.merge_results(named_results, exec_body)
+
+        if isinstance(merge_result, dict) and exec_body:
+            # New-style: delegate serialization to OutputsHandler so ProcessResult
+            # objects are converted to bytes before the envelope enters Redis.
+            http_response = OutputsHandler(
+                process_description=process.process_description,
+                execute_request=exec_body,
+            ).build_response(merge_result)
+            merged = {
+                "__fp_result__": True,
+                "body": base64.b64encode(http_response.body).decode("ascii"),
+                "media_type": http_response.media_type,
+            }
+        else:
+            merged = jsonable_encoder(merge_result)
 
         try:
             calculation_task = CalculationTask(**exec_body)
@@ -382,7 +420,10 @@ def finalize_scatter(
         )
         return merged
     except Exception as e:
-        update_job_status(job_id, 0, "Scatter merge failed. See server logs.", JobStatusCode.FAILED)
+        update_job_status(
+            job_id, 0, "Scatter merge failed. See server logs.",
+            JobStatusCode.FAILED,
+        )
         logger.error(
             "Scatter finalization failed for process {} (job {}): {}",
             process_id,
