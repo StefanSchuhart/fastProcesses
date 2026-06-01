@@ -1,3 +1,4 @@
+import base64
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request, Response, status
@@ -29,6 +30,25 @@ from fastprocesses.core.models import (
     ProcessExecResponse,
     ProcessList,
 )
+
+
+def _unwrap_fp_result(result: Any) -> Any:
+    """Reconstruct a FastAPI Response from a worker-serialized __fp_result__ envelope.
+
+    When execute() returns a dict of output values (new-style), the Celery task
+    calls OutputsHandler in-worker and stores the serialized body + media type in
+    this envelope so it can round-trip through Redis/Celery's JSON backend.  The
+    router detects the sentinel key and rebuilds the original HTTP Response.
+
+    Results that do not carry the sentinel pass through unchanged so old-style
+    BaseModel-returning processes continue to work without any modification.
+    """
+    if isinstance(result, dict) and result.get("__fp_result__") is True:
+        return Response(
+            content=base64.b64decode(result["body"]),
+            media_type=result["media_type"],
+        )
+    return result
 
 
 def get_router(
@@ -201,7 +221,7 @@ def get_router(
             # If result is not a ProcessExecResponse, treat as ready result (sync)
             if not isinstance(result, ProcessExecResponse):
                 response.status_code = status.HTTP_200_OK
-                return result
+                return _unwrap_fp_result(result)
 
             # Async or Timeout: return job info
             response.status_code = status.HTTP_201_CREATED
@@ -323,10 +343,10 @@ def get_router(
             raise HTTPException(status_code=404, detail=exception)
 
     @router.get("/jobs/{job_id}/results", response_model_exclude_none=True)
-    async def get_job_result(job_id: str) -> dict | OGCExceptionResponse:
+    async def get_job_result(job_id: str) -> Any:
         logger.debug(f"Get job result endpoint accessed for job ID: {job_id}")
         try:
-            return process_manager.get_job_result(job_id)
+            return _unwrap_fp_result(process_manager.get_job_result(job_id))
 
         # ValueError: Here, 'job id does not exist' is meant.
         except JobNotFoundError as e:

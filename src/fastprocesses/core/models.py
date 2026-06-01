@@ -220,7 +220,7 @@ class OutputControl(BaseModel):
 
 class ProcessExecRequestBody(BaseModel):
     inputs: Dict[str, Any]
-    outputs: dict[str, dict[str, OutputControl]] | None = None
+    outputs: dict[str, OutputControl] | None = None
     mode: Optional[ExecutionMode] = ExecutionMode.ASYNC
     response: ResponseType = ResponseType.RAW
 
@@ -232,13 +232,25 @@ def deserialize_json(value: Any) -> Any:
 class CalculationTask(BaseModel):
     inputs: Annotated[Dict[str, Any], AfterValidator(deserialize_json)]
     outputs: (
-        Annotated[dict[str, dict[str, OutputControl]], AfterValidator(deserialize_json)]
+        Annotated[dict[str, OutputControl], AfterValidator(deserialize_json)]
         | None
     ) = None
     response: ResponseType = ResponseType.RAW
 
     def _hash_dict(self):
-        data = {"inputs": self.inputs, "outputs": self.outputs}
+        # Include response in the cache key so different response modes
+        # (e.g. "raw" vs "document") produce distinct cache entries.
+        # "outputs" already carries per-output format hints when provided.
+        response_value = (
+            self.response.value
+            if hasattr(self.response, "value")
+            else str(self.response)
+        )
+        data = {
+            "inputs": self.inputs,
+            "outputs": self.outputs,
+            "response": response_value,
+        }
         return hashlib.sha256(
             json.dumps(data, sort_keys=True, default=str).encode()
         ).hexdigest()

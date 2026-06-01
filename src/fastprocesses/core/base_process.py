@@ -66,7 +66,7 @@ class BaseProcess(ABC):
         self,
         exec_body: Dict[str, Any],
         job_progress_callback: JobProgressCallback | None = None,
-    ) -> BaseModel | Awaitable[BaseModel]:
+    ) -> BaseModel | Awaitable[BaseModel] | Dict[str, Any]:
         """
         Executes the process with given inputs.
 
@@ -85,10 +85,10 @@ class BaseProcess(ABC):
         self,
         exec_body: dict,
         job_progress_callback: JobProgressCallback | None = None,
-    ) -> BaseModel:
+    ) -> BaseModel | Dict[str, Any]:
         """
         Calls the execute method, handling both sync and async implementations.
-        Always returns a BaseModel, never an awaitable.
+        Always returns a BaseModel or a dictionary, never an awaitable.
         """
         result = self.execute(exec_body, job_progress_callback=job_progress_callback)
         if inspect.isawaitable(result):
@@ -320,7 +320,7 @@ class BaseProcess(ABC):
         return True
 
     def validate_outputs(
-        self, outputs: dict[str, dict[str, OutputControl]] | None
+        self, outputs: dict[str, OutputControl] | None
     ) -> bool:
         """
         Validates the outputs parameter against the process description.
