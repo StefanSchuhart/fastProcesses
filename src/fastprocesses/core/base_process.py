@@ -265,7 +265,7 @@ class BaseProcess(ABC):
             input_desc = required_inputs[input_name]
             try:
                 input_schema = input_desc.scheme.model_dump(
-                    exclude_unset=True, by_alias=True
+                    exclude_unset=True, exclude_none=True, by_alias=True
                 )
                 if self.schema_registry is not None:
                     jsonschema_validate(
