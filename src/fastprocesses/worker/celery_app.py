@@ -104,7 +104,12 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
                 calculation_task.celery_key,
             )
             update_job_status(
-                job_id, 100, "Result retrieved from cache.", JobStatusCode.SUCCESSFUL
+                job_id,
+                100,
+                "Result retrieved from cache.",
+                JobStatusCode.SUCCESSFUL,
+                started=datetime.now(timezone.utc),
+                process_id=process_id,
             )
             return cached_result
     except Exception as e:
@@ -120,6 +125,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
             "Process started",
             JobStatusCode.RUNNING,
             started=datetime.now(timezone.utc),
+            process_id=process_id,
         )
         result = get_executor(process).execute(
             process, process_id, data, job_id, serialized_data_str, job_progress_callback
