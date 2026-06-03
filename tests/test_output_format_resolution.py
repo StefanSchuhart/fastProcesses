@@ -17,7 +17,6 @@ from fastprocesses.core.models import (
     ProcessOutputTransmission,
     Schema,
 )
-from fastprocesses.core.output_protocol import BaseProcessResult
 from fastprocesses.core.output_schema_resolver import (
     OutputSchemaResolver,
     ResolvedOutputFormat,
@@ -248,7 +247,7 @@ class TestOutputsHandler:
         assert base64.b64decode(body["thumb"]["value"]) == raw_bytes
 
     def test_process_result_protocol_is_called(self):
-        """A BaseProcessResult value delegates serialization to .serialize()."""
+        """A ProcessResult-protocol value delegates serialization to .serialize()."""
         description = _make_description({"features": _geojson_output()})
         handler = OutputsHandler(
             process_description=description,
@@ -258,10 +257,15 @@ class TestOutputsHandler:
         geojson_bytes = json.dumps(
             {"type": "FeatureCollection", "features": []}
         ).encode()
-        result_obj = BaseProcessResult(None)
-        result_obj.register("application/geo+json", lambda _: geojson_bytes)
 
-        response = handler.build_response({"features": result_obj})
+        class _GeoJsonResult:
+            def serialize(self, media_type: str) -> bytes:
+                return geojson_bytes
+
+            def supported_media_types(self) -> list[str]:
+                return ["application/geo+json"]
+
+        response = handler.build_response({"features": _GeoJsonResult()})
 
         body = json.loads(response.body)
         assert body["features"]["type"] == "FeatureCollection"
@@ -292,12 +296,21 @@ class TestOutputsHandler:
             handler.build_response({"report": Unserializable()})
 
     def test_process_result_unsupported_media_type_raises(self):
-        """BaseProcessResult raises SerializationError for unregistered media types."""
-        result_obj = BaseProcessResult("some data")
-        result_obj.register("text/plain", lambda value: value.encode())
+        """A ProcessResult raises when asked for an unsupported media type."""
+
+        class _TextResult:
+            def serialize(self, media_type: str) -> bytes:
+                if media_type != "text/plain":
+                    raise SerializationError(
+                        f"no serializer for '{media_type}'"
+                    )
+                return b"some data"
+
+            def supported_media_types(self) -> list[str]:
+                return ["text/plain"]
 
         with pytest.raises(SerializationError, match="no serializer for"):
-            result_obj.serialize("application/geo+json")
+            _TextResult().serialize("application/geo+json")
 
     def test_default_response_mode_is_raw(self):
         """When 'response' is absent from the request, 'raw' is used."""
