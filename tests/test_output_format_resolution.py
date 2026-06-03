@@ -1,15 +1,15 @@
-"""Tests for OutputSchemaResolver and OutputsHandler.
+"""Tests for OutputSchemaResolver and serialize_result.
 
 Covers format resolution (happy path, defaults, error cases) and
-response assembly (raw, document, binary encoding, ProcessResult dispatch).
+response assembly (raw, document, binary encoding).
 
 No mocking of internal details — all tests go through the public API.
 """
 import json
+from typing import ClassVar
 
 import pytest
 
-from fastprocesses.core.exceptions import SerializationError
 from fastprocesses.core.models import (
     ProcessDescription,
     ProcessJobControlOptions,
@@ -17,11 +17,12 @@ from fastprocesses.core.models import (
     ProcessOutputTransmission,
     Schema,
 )
+from fastprocesses.core.output_protocol import BaseProcessResult
 from fastprocesses.core.output_schema_resolver import (
     OutputSchemaResolver,
     ResolvedOutputFormat,
 )
-from fastprocesses.core.outputs_handler import OutputsHandler
+from fastprocesses.core.outputs_handler import serialize_result
 
 # ---------------------------------------------------------------------------
 # Fixtures — minimal ProcessDescription instances
@@ -183,145 +184,160 @@ class TestOutputSchemaResolver:
 
 
 # ---------------------------------------------------------------------------
-# OutputsHandler tests
+# Minimal BaseProcessResult subclasses used by serialization tests
 # ---------------------------------------------------------------------------
 
 
-class TestOutputsHandler:
-    def test_raw_response_single_output_dict(self):
-        """response='raw' with a dict value returns a Response with correct Content-Type."""
-        description = _make_description({"report": _json_output()})
-        handler = OutputsHandler(
-            process_description=description,
-            execute_request={"response": "raw", "outputs": {"report": {}}},
-        )
+class _JsonResult(BaseProcessResult):
+    """Result with a plain JSON output."""
+    report: dict | list
 
-        response = handler.build_response({"report": {"status": "ok"}})
+    output_serializers: ClassVar = {
+        "report": {"application/json": "_to_json"}
+    }
+
+    def _to_json(self) -> bytes:
+        return json.dumps(self.report, ensure_ascii=False).encode()
+
+
+class _GeoJsonResult(BaseProcessResult):
+    """Result with a GeoJSON output."""
+    features: dict
+
+    output_serializers: ClassVar = {
+        "features": {
+            "application/geo+json": "_to_geojson",
+            "application/flatgeobuf": "_to_flatgeobuf",
+        }
+    }
+
+    def _to_geojson(self) -> bytes:
+        return json.dumps(self.features).encode()
+
+    def _to_flatgeobuf(self) -> bytes:
+        # Stub — real impl would encode flatgeobuf
+        return b"\x66\x67\x62"  # "fgb" magic bytes
+
+
+class _BinaryResult(BaseProcessResult):
+    """Result with a binary (PNG) output."""
+    thumb: bytes
+
+    output_serializers: ClassVar = {
+        "thumb": {"image/png": "_to_png"}
+    }
+
+    def _to_png(self) -> bytes:
+        return self.thumb
+
+
+# ---------------------------------------------------------------------------
+# serialize_result tests
+# ---------------------------------------------------------------------------
+
+
+class TestSerializeResult:
+    def test_raw_response_single_json_output(self):
+        """response='raw' with a JSON output returns correct Content-Type and body."""
+        description = _make_description({"report": _json_output()})
+        result = _JsonResult(report={"status": "ok"})
+
+        response = serialize_result(result, {"report": {}}, "raw", description)
 
         assert response.status_code == 200
         assert response.media_type == "application/json"
-        body = json.loads(response.body)
-        assert body == {"status": "ok"}
+        assert json.loads(response.body) == {"status": "ok"}
 
     def test_raw_response_multiple_outputs_raises(self):
         """response='raw' with more than one output raises ValueError."""
         description = _make_description(
-            {"a": _json_output(), "b": _json_output()}
-        )
-        handler = OutputsHandler(
-            process_description=description,
-            execute_request={"response": "raw", "outputs": {}},
+            {"features": _geojson_output(), "report": _json_output()}
         )
 
+        class _MultiResult(BaseProcessResult):
+            features: dict
+            report: dict
+            output_serializers: ClassVar = {
+                "features": {"application/geo+json": "_f"},
+                "report": {"application/json": "_r"},
+            }
+            def _f(self) -> bytes: return b"{}"
+            def _r(self) -> bytes: return b"{}"
+
+        result = _MultiResult(features={}, report={})
         with pytest.raises(ValueError, match="exactly one output"):
-            handler.build_response({"a": {}, "b": {}})
+            serialize_result(result, {}, "raw", description)
 
-    def test_document_response_json_output(self):
-        """response='document' embeds a JSON output directly in the envelope."""
+    def test_document_response_json_output_qualified_value(self):
+        """response='document' wraps JSON output as a qualified value with mediaType."""
         description = _make_description({"report": _json_output()})
-        handler = OutputsHandler(
-            process_description=description,
-            execute_request={"response": "document", "outputs": {"report": {}}},
-        )
+        result = _JsonResult(report={"count": 42})
 
-        response = handler.build_response({"report": {"count": 42}})
+        response = serialize_result(result, {"report": {}}, "document", description)
 
         body = json.loads(response.body)
-        assert body == {"report": {"count": 42}}
+        assert body["report"]["value"] == {"count": 42}
+        assert body["report"]["mediaType"] == "application/json"
 
     def test_document_response_binary_output_is_base64(self):
-        """Binary outputs in a document response are base64-encoded with metadata."""
+        """Binary outputs in document mode are base64-encoded with encoding metadata."""
+        import base64
         description = _make_description({"thumb": _binary_output()})
-        handler = OutputsHandler(
-            process_description=description,
-            execute_request={"response": "document", "outputs": {"thumb": {}}},
-        )
         raw_bytes = b"\x89PNG\r\n\x1a\n"
+        result = _BinaryResult(thumb=raw_bytes)
 
-        response = handler.build_response({"thumb": raw_bytes})
+        response = serialize_result(result, {"thumb": {}}, "document", description)
 
         body = json.loads(response.body)
         assert body["thumb"]["encoding"] == "base64"
         assert body["thumb"]["mediaType"] == "image/png"
-        import base64
         assert base64.b64decode(body["thumb"]["value"]) == raw_bytes
 
-    def test_process_result_protocol_is_called(self):
-        """A ProcessResult-protocol value delegates serialization to .serialize()."""
+    def test_geojson_raw_response(self):
+        """GeoJSON output in raw mode returns application/geo+json."""
         description = _make_description({"features": _geojson_output()})
-        handler = OutputsHandler(
-            process_description=description,
-            execute_request={"response": "document", "outputs": {"features": {}}},
-        )
+        fc = {"type": "FeatureCollection", "features": []}
+        result = _GeoJsonResult(features=fc)
 
-        geojson_bytes = json.dumps(
-            {"type": "FeatureCollection", "features": []}
-        ).encode()
+        response = serialize_result(result, {"features": {}}, "raw", description)
 
-        class _GeoJsonResult:
-            def serialize(self, media_type: str) -> bytes:
-                return geojson_bytes
+        assert response.media_type == "application/geo+json"
+        assert json.loads(response.body) == fc
 
-            def supported_media_types(self) -> list[str]:
-                return ["application/geo+json"]
+    def test_document_response_geojson_qualified_value(self):
+        """GeoJSON in document mode is wrapped as a qualified value."""
+        description = _make_description({"features": _geojson_output()})
+        fc = {"type": "FeatureCollection", "features": []}
+        result = _GeoJsonResult(features=fc)
 
-        response = handler.build_response({"features": _GeoJsonResult()})
+        response = serialize_result(result, {"features": {}}, "document", description)
 
         body = json.loads(response.body)
-        assert body["features"]["type"] == "FeatureCollection"
+        assert body["features"]["value"] == fc
+        assert body["features"]["mediaType"] == "application/geo+json"
 
-    def test_missing_output_in_results_raises(self):
-        """If execute() omits a requested output, build_response raises ValueError."""
+    def test_unknown_media_type_raises(self):
+        """Requesting a media type with no registered serializer raises ValueError."""
         description = _make_description({"report": _json_output()})
-        handler = OutputsHandler(
-            process_description=description,
-            execute_request={"response": "document", "outputs": {"report": {}}},
-        )
+        result = _JsonResult(report={})
 
-        with pytest.raises(ValueError, match="returned no value"):
-            handler.build_response({})
+        with pytest.raises(ValueError, match="No serializer"):
+            # Force resolution to a type that has no serializer entry
+            # by patching output_serializers to be empty
+            result.__class__.output_serializers = {}
+            try:
+                serialize_result(result, {"report": {}}, "raw", description)
+            finally:
+                result.__class__.output_serializers = {
+                    "report": {"application/json": "_to_json"}
+                }
 
-    def test_unserializable_value_raises_serialization_error(self):
-        """A value with no serialization path raises SerializationError."""
+    def test_default_empty_outputs_resolves_all(self):
+        """Empty requested_outputs resolves all described outputs."""
         description = _make_description({"report": _json_output()})
-        handler = OutputsHandler(
-            process_description=description,
-            execute_request={"response": "raw", "outputs": {"report": {}}},
-        )
+        result = _JsonResult(report=[1, 2, 3])
 
-        class Unserializable:
-            pass
-
-        with pytest.raises(SerializationError, match="cannot serialize"):
-            handler.build_response({"report": Unserializable()})
-
-    def test_process_result_unsupported_media_type_raises(self):
-        """A ProcessResult raises when asked for an unsupported media type."""
-
-        class _TextResult:
-            def serialize(self, media_type: str) -> bytes:
-                if media_type != "text/plain":
-                    raise SerializationError(
-                        f"no serializer for '{media_type}'"
-                    )
-                return b"some data"
-
-            def supported_media_types(self) -> list[str]:
-                return ["text/plain"]
-
-        with pytest.raises(SerializationError, match="no serializer for"):
-            _TextResult().serialize("application/geo+json")
-
-    def test_default_response_mode_is_raw(self):
-        """When 'response' is absent from the request, 'raw' is used."""
-        description = _make_description({"report": _json_output()})
-        handler = OutputsHandler(
-            process_description=description,
-            # No 'response' key
-            execute_request={"outputs": {"report": {}}},
-        )
-
-        response = handler.build_response({"report": [1, 2, 3]})
+        response = serialize_result(result, {}, "raw", description)
 
         assert response.media_type == "application/json"
         assert json.loads(response.body) == [1, 2, 3]
