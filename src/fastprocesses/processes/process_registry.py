@@ -1,14 +1,73 @@
 # src/fastprocesses/processes/process_registry.py
 import json
+import typing
 from pydoc import locate
 from typing import List, Type, cast
 
 from fastprocesses.common import settings
 from fastprocesses.core.base_process import BaseProcess
-from fastprocesses.core.exceptions import ProcessClassNotFoundError
+from fastprocesses.core.exceptions import ProcessClassNotFoundError, ProcessRegistrationError
 from fastprocesses.core.logging import logger
 from fastprocesses.core.models import ProcessDescription
+from fastprocesses.core.output_protocol import BaseProcessResult
+from fastprocesses.core.output_schema_resolver import _media_type_from_schema
 from fastprocesses.core.redis_connection import RedisConnection
+
+
+def _validate_process_registration(
+    process_id: str,
+    process: BaseProcess,
+    description: ProcessDescription,
+) -> None:
+    """Validate that a BaseProcessResult-returning process is correctly wired.
+
+    Raises ProcessRegistrationError if:
+    - execute()'s return annotation is not a BaseProcessResult subclass
+    - any output ID in the description is missing as a field on the result model
+    - any media type advertised by the description lacks an output_serializers entry
+    """
+    try:
+        hints = typing.get_type_hints(type(process).execute)
+    except Exception:
+        return  # can't introspect — skip validation
+
+    return_type = hints.get("return")
+    if return_type is None or not (
+        isinstance(return_type, type) and issubclass(return_type, BaseProcessResult)
+    ):
+        # Legacy process (plain BaseModel or no annotation) — no validation needed
+        return
+
+    model_fields = set(return_type.model_fields.keys())
+    serializers: dict[str, dict[str, str]] = return_type.output_serializers
+
+    for output_id, output_desc in (description.outputs or {}).items():
+        # 1. Result model must have a field for every declared output
+        if output_id not in model_fields:
+            raise ProcessRegistrationError(
+                process_id,
+                f"output '{output_id}' is declared in the process description but "
+                f"has no corresponding field on {return_type.__name__}",
+            )
+
+        # 2. Every advertised media type must have an output_serializers entry
+        schema = output_desc.schema_
+        if schema is None:
+            continue
+
+        branches = schema.oneOf if schema.oneOf else [schema]
+        for branch in branches:
+            media_type = _media_type_from_schema(branch)
+            if media_type is None:
+                continue
+            available = serializers.get(output_id, {})
+            if media_type not in available:
+                raise ProcessRegistrationError(
+                    process_id,
+                    f"output '{output_id}' advertises media type '{media_type}' but "
+                    f"{return_type.__name__}.output_serializers has no entry for it. "
+                    f"Available: {list(available.keys()) or 'none'}",
+                )
 
 
 class ProcessRegistry:
@@ -33,6 +92,9 @@ class ProcessRegistry:
         """
         try:
             description: ProcessDescription = process.get_description()
+
+            # Validate the process class is correctly wired before persisting
+            _validate_process_registration(process_id, process, description)
 
             # serialize the description
             description_dict = description.model_dump(exclude_none=True)
