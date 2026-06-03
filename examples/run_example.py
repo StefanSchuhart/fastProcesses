@@ -220,7 +220,7 @@ class TextModel(BaseModel):
             }
         } 
 
-class TextModelOut(BaseModel):
+class TextModelOut(BaseProcessResult):
     upper: str | None = None
     lower: str | None = None
 
@@ -242,7 +242,7 @@ class SimpleProcess(BaseProcess):
         self,
         exec_body: dict[str, dict],
         job_progress_callback: JobProgressCallback | None = None
-    ) -> BaseModel:
+    ) -> TextModelOut:
 
         # Report start if callback is provided
 
@@ -299,8 +299,8 @@ class SimpleProcess_2(BaseProcess):
             )
         },
         outputs={
-            "output_text": ProcessOutput(
-                title="Output Text",
+            "upper": ProcessOutput(
+                title="Upper-cased Text",
                 description="Processed text",
                 scheme=Schema(type="string"),
             )
@@ -313,7 +313,7 @@ class SimpleProcess_2(BaseProcess):
         self,
         exec_body: dict[str, Any],
         job_progress_callback: Callable[[int, str], None] | None = None
-    ) -> BaseModel:
+    ) -> TextModelOut:
 
         # Report start if callback is provided
         if job_progress_callback:
@@ -352,7 +352,7 @@ class SimpleProcess_2(BaseProcess):
 # =============================================================================
 
 
-class WordBatch(BaseModel):
+class WordBatch(BaseProcessResult):
     words: list[str]
 
 
@@ -447,7 +447,7 @@ class UniqueWordsResult(BaseModel):
     words: list[str]
 
 
-class TextAnalysisResult(BaseModel):
+class TextAnalysisResult(BaseProcessResult):
     word_count: int
     char_count: int
     unique_words: list[str]
