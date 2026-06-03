@@ -1,5 +1,4 @@
 # worker/celery_app.py
-import base64
 import json
 import signal
 import time
@@ -10,7 +9,7 @@ from typing import Any, Dict
 import kombu.exceptions
 from celery import Task
 from celery.exceptions import SoftTimeLimitExceeded
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from fastprocesses.common import (
     celery_app,
@@ -23,8 +22,6 @@ from fastprocesses.core.models import (
     CalculationTask,
     JobStatusCode,
 )
-from fastprocesses.core.output_protocol import ProcessResult
-from fastprocesses.core.outputs_handler import OutputsHandler
 from fastprocesses.worker.executors import get_executor
 from fastprocesses.worker.job_status import update_job_status
 from fastprocesses.worker.pipeline import (
@@ -42,45 +39,6 @@ from fastprocesses.worker.pipeline import (
 signal.signal(signal.SIGTERM, sigterm_handler)
 signal.signal(signal.SIGINT, sigint_handler)
 
-
-def _contains_process_result(result: dict) -> bool:
-    """Return True when any value in the result dict implements ProcessResult.
-
-    Used to decide whether OutputsHandler must run in the worker before the
-    result is stored — ProcessResult objects are not JSON-serializable and
-    cannot round-trip through Celery's result backend.
-    """
-    return any(isinstance(value, ProcessResult) for value in result.values())
-
-
-def _build_fp_envelope(
-    process,
-    execute_request: dict,
-    result: dict,
-) -> dict:
-    """Serialize a new-style execute() return value into a JSON-safe envelope.
-
-    Calls OutputsHandler inside the worker so that ProcessResult objects are
-    serialized to bytes before the result leaves the task.  The envelope is
-    a plain dict that Celery can store in its JSON-based result backend::
-
-        {
-            "__fp_result__": True,
-            "body": "<base64-encoded response body>",
-            "media_type": "application/geo+json",
-        }
-
-    The router detects this shape and reconstructs the HTTP Response.
-    """
-    http_response = OutputsHandler(
-        process_description=process.process_description,
-        execute_request=execute_request,
-    ).build_response(result)
-    return {
-        "__fp_result__": True,
-        "body": base64.b64encode(http_response.body).decode("ascii"),
-        "media_type": http_response.media_type,
-    }
 
 
 class CacheResultTask(Task):
@@ -232,14 +190,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
     )
     update_job_status(job_id, 100, "Process completed", JobStatusCode.SUCCESSFUL)
 
-    if isinstance(result, dict):
-        # New-style execute(): process returned a dict of output values.
-        # Serialize in the worker now — ProcessResult objects are not
-        # JSON-serializable and cannot pass through Celery's result backend.
-        return _build_fp_envelope(process, data, result)
-
-    # Old-style execute(): process returned a BaseModel — keep existing behaviour.
-    return result.model_dump(exclude_none=True)
+    return result.model_dump(mode="json")
 
 
 @celery_app.task(name="fastprocesses.check_cache")
