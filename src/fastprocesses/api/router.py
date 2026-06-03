@@ -37,20 +37,37 @@ from fastprocesses.core.outputs_handler import serialize_result
 def _get_result_class(
     process,
 ) -> type[BaseProcessResult] | None:
-    """Return the BaseProcessResult subclass declared as execute()'s return type.
+    """Return the concrete BaseProcessResult subclass for this process's output.
 
-    Returns None when the annotation is absent or not a BaseProcessResult subclass
-    (e.g. a plain BaseModel used by test fixtures or legacy processes).
+    Checks, in order:
+    1. execute() return annotation — used by BaseProcess subclasses.
+    2. merge_results() return annotation — used by BaseParallelProcess /
+       BaseScatterProcess subclasses where the final result comes from the
+       finalize/merge step, not from execute() directly.
+
+    Returns None when no concrete subclass is found (legacy processes that
+    return a plain BaseModel or have no annotation).
     """
-    try:
-        hints = typing.get_type_hints(type(process).execute)
-        return_type = hints.get("return")
-        if return_type is not None and isinstance(return_type, type) and issubclass(
-            return_type, BaseProcessResult
+
+    def _concrete(return_type: object) -> type[BaseProcessResult] | None:
+        """Return return_type iff it is a concrete BaseProcessResult subclass."""
+        if (
+            isinstance(return_type, type)
+            and issubclass(return_type, BaseProcessResult)
+            and return_type is not BaseProcessResult
         ):
             return return_type
-    except Exception:
-        pass
+        return None
+
+    cls = type(process)
+    for method_name in ("execute", "merge_results"):
+        try:
+            hints = typing.get_type_hints(getattr(cls, method_name))
+            result = _concrete(hints.get("return"))
+            if result is not None:
+                return result
+        except Exception:
+            pass
     return None
 
 
