@@ -34,8 +34,10 @@ def _validate_process_registration(
     return_type = hints.get("return")
     if return_type is None or not (
         isinstance(return_type, type) and issubclass(return_type, BaseProcessResult)
-    ):
-        # Legacy process (plain BaseModel or no annotation) — no validation needed
+    ) or return_type is BaseProcessResult:
+        # No annotation, not a BaseProcessResult subclass, or the abstract base
+        # itself (inherited from BaseParallelProcess / BaseScatterProcess) —
+        # no validation needed.
         return
 
     model_fields = set(return_type.model_fields.keys())
@@ -51,7 +53,7 @@ def _validate_process_registration(
             )
 
         # 2. Every advertised media type must have an output_serializers entry
-        schema = output_desc.schema_
+        schema = output_desc.scheme
         if schema is None:
             continue
 
