@@ -184,7 +184,7 @@ import csv
 import io
 import json
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, ClassVar
 
 import uvicorn
 from pydantic import BaseModel
@@ -543,27 +543,29 @@ class TextAnalysisProcess(BaseScatterProcess):
 
 
 class WordFrequencyResult(BaseProcessResult):
-    """Wraps a word-frequency dict and registers JSON and CSV serializers.
+    """Word-frequency data that can be serialized to JSON or CSV.
 
-    Subclasses BaseProcessResult so the library can call
-    .serialize(media_type) without knowing anything about the data format.
+    Fields are Pydantic model fields (stored in Redis as plain dict).
+    output_serializers maps each output ID + media type to the method
+    name that produces the corresponding bytes.
     """
 
-    def __init__(self, frequencies: dict[str, int]) -> None:
-        super().__init__(frequencies)
-        self.register("application/json", self._to_json)
-        self.register("text/csv", self._to_csv)
+    frequencies: dict[str, int]
+    output_serializers: ClassVar = {
+        "frequencies": {
+            "application/json": "_to_json",
+            "text/csv": "_to_csv",
+        }
+    }
 
-    @staticmethod
-    def _to_json(frequencies: dict[str, int]) -> bytes:
-        return json.dumps(frequencies, ensure_ascii=False, indent=2).encode()
+    def _to_json(self) -> bytes:
+        return json.dumps(self.frequencies, ensure_ascii=False, indent=2).encode()
 
-    @staticmethod
-    def _to_csv(frequencies: dict[str, int]) -> bytes:
+    def _to_csv(self) -> bytes:
         buffer = io.StringIO()
         writer = csv.writer(buffer)
         writer.writerow(["word", "count"])
-        for word, count in sorted(frequencies.items()):
+        for word, count in sorted(self.frequencies.items()):
             writer.writerow([word, count])
         return buffer.getvalue().encode()
 
@@ -631,7 +633,7 @@ class WordFrequencyProcess(BaseProcess):
         self,
         exec_body: dict[str, Any],
         job_progress_callback: JobProgressCallback | None = None,
-    ) -> dict[str, Any]:
+    ) -> WordFrequencyResult:
         text: str = exec_body["inputs"]["text"]
         words = text.lower().split()
 
@@ -639,10 +641,7 @@ class WordFrequencyProcess(BaseProcess):
         for word in words:
             frequencies[word] = frequencies.get(word, 0) + 1
 
-        # Return a dict (new-style) — the library calls OutputsHandler in the
-        # worker, resolves the requested format, and serializes via
-        # WordFrequencyResult before the result reaches Redis.
-        return {"frequencies": WordFrequencyResult(frequencies)}
+        return WordFrequencyResult(frequencies=frequencies)
 
 
 # =============================================================================
@@ -741,13 +740,13 @@ class ParallelWordFrequencyProcess(BaseParallelProcess):
 
     def merge_results(
         self, results: list[dict]
-    ) -> dict[str, Any]:
+    ) -> WordFrequencyResult:
         """Merge per-chunk frequency dicts and wrap in a WordFrequencyResult."""
         merged: dict[str, int] = {}
         for chunk in results:
             for word, count in chunk["frequencies"].items():
                 merged[word] = merged.get(word, 0) + count
-        return {"frequencies": WordFrequencyResult(merged)}
+        return WordFrequencyResult(frequencies=merged)
 
 
 # =============================================================================
@@ -761,33 +760,38 @@ class ParallelWordFrequencyProcess(BaseParallelProcess):
 
 
 class TextSummaryResult(BaseProcessResult):
-    """Wraps text analysis summary metrics and registers JSON and CSV serializers."""
+    """Text analysis metrics that can be serialized to JSON or CSV."""
 
-    def __init__(
-        self,
-        word_count: int,
-        char_count: int,
-        unique_word_count: int,
-    ) -> None:
-        value = {
-            "word_count": word_count,
-            "char_count": char_count,
-            "unique_word_count": unique_word_count,
+    word_count: int
+    char_count: int
+    unique_word_count: int
+    output_serializers: ClassVar = {
+        "summary": {
+            "application/json": "_to_json",
+            "text/csv": "_to_csv",
         }
-        super().__init__(value)
-        self.register("application/json", self._to_json)
-        self.register("text/csv", self._to_csv)
+    }
 
-    @staticmethod
-    def _to_json(value: dict) -> bytes:
-        return json.dumps(value, ensure_ascii=False, indent=2).encode()
+    def _to_json(self) -> bytes:
+        return json.dumps(
+            {
+                "word_count": self.word_count,
+                "char_count": self.char_count,
+                "unique_word_count": self.unique_word_count,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ).encode()
 
-    @staticmethod
-    def _to_csv(value: dict) -> bytes:
+    def _to_csv(self) -> bytes:
         buffer = io.StringIO()
         writer = csv.writer(buffer)
         writer.writerow(["metric", "value"])
-        for metric, val in value.items():
+        for metric, val in [
+            ("word_count", self.word_count),
+            ("char_count", self.char_count),
+            ("unique_word_count", self.unique_word_count),
+        ]:
             writer.writerow([metric, val])
         return buffer.getvalue().encode()
 
@@ -860,15 +864,13 @@ class ScatterTextSummaryProcess(BaseScatterProcess):
 
     def merge_results(
         self, results: dict[str, dict], exec_body: dict
-    ) -> dict[str, Any]:
+    ) -> TextSummaryResult:
         """Assemble a TextSummaryResult from the three parallel step outputs."""
-        return {
-            "summary": TextSummaryResult(
-                word_count=results["count_words"]["count"],
-                char_count=results["count_chars"]["count"],
-                unique_word_count=len(results["count_unique"]["words"]),
-            )
-        }
+        return TextSummaryResult(
+            word_count=results["count_words"]["count"],
+            char_count=results["count_chars"]["count"],
+            unique_word_count=len(results["count_unique"]["words"]),
+        )
 
 
 # Create the FastAPI app
