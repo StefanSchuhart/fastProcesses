@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Protocol, runtime_checkable
+from typing import ClassVar, Protocol, runtime_checkable
+
+from pydantic import BaseModel
 
 
 @runtime_checkable
 class ProcessResult(Protocol):
     """
     Protocol for wrapping process output values with their serializers.
-    Process authors return instances of this from execute().
-    The library calls .serialize(media_type) -> bytes.
+    Kept for backward compatibility during the v2 migration.
     """
 
     def serialize(self, media_type: str) -> bytes: ...
@@ -16,40 +17,44 @@ class ProcessResult(Protocol):
     def supported_media_types(self) -> list[str]: ...
 
 
-class BaseProcessResult:
+class BaseProcessResult(BaseModel):
     """
-    Optional convenience base. Process authors may subclass this
-    or implement ProcessResult directly.
+    Base class for process results.
+
+    Subclass this and add one field per output_id. Declare serializers via
+    ``output_serializers`` so the library knows how to convert each output
+    field to bytes for a given media type.
 
     Example::
 
-        class GeoDataFrameResult(BaseProcessResult):
-            def __init__(self, gdf):
-                super().__init__(gdf)
-                self.register("application/geo+json", lambda v: v.to_json().encode())
-                self.register("application/flatgeobuf", lambda v: v.to_file(...))
+        class WordFrequencyResult(BaseProcessResult):
+            frequencies: dict[str, int]
+
+            output_serializers: ClassVar = {
+                "frequencies": {
+                    "application/json": "frequencies_to_json",
+                    "text/csv": "frequencies_to_csv",
+                }
+            }
+
+            def frequencies_to_json(self) -> bytes:
+                return self.model_dump_json().encode()
+
+            def frequencies_to_csv(self) -> bytes:
+                rows = "\\n".join(f"{k},{v}" for k, v in self.frequencies.items())
+                return f"word,count\\n{rows}".encode()
     """
 
-    def __init__(self, value: Any) -> None:
-        self._value = value
-        self._serializers: dict[str, Callable[[Any], bytes]] = {}
+    # {output_id: {media_type: method_name}}
+    output_serializers: ClassVar[dict[str, dict[str, str]]] = {}
 
-    def register(
-        self, media_type: str, fn: Callable[[Any], bytes]
-    ) -> "BaseProcessResult":
-        """Register a serializer for a media type. Returns self for fluent chaining."""
-        self._serializers[media_type] = fn
-        return self
-
-    def serialize(self, media_type: str) -> bytes:
-        from fastprocesses.core.exceptions import SerializationError
-
-        if media_type not in self._serializers:
-            raise SerializationError(
-                f"{type(self).__name__} has no serializer for '{media_type}'. "
-                f"Supported: {self.supported_media_types()}"
+    def serialize(self, output_id: str, media_type: str) -> bytes:
+        """Serialize the named output field to the requested media type."""
+        serializers = self.output_serializers.get(output_id, {})
+        method_name = serializers.get(media_type)
+        if method_name is None:
+            raise ValueError(
+                f"No serializer for output '{output_id}' / media type '{media_type}'. "
+                f"Available: {list(serializers.keys())}"
             )
-        return self._serializers[media_type](self._value)
-
-    def supported_media_types(self) -> list[str]:
-        return list(self._serializers.keys())
+        return getattr(self, method_name)()
