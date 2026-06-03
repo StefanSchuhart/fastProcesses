@@ -142,24 +142,67 @@ FastAPI Response (JSONResponse / Response with bytes)
 
 ## Cache Design
 
-**Key derivation**: hash of `inputs` + `output_ids` only (no `response` or format info).
+### Key derivation — modify `CalculationTask._hash_dict()`
+
+`CalculationTask` already owns cache key derivation. The change is to make the key
+format-agnostic so the same canonical result is reused regardless of requested format:
 
 ```python
-def _hash_dict(self) -> str:
-    data = self.model_dump(mode="json", include={"inputs", "outputs"})
-    # outputs here = which output_ids were requested, NOT their format
-    # strip format info before hashing
-    if "outputs" in data and data["outputs"]:
-        data["outputs"] = {k: {} for k in data["outputs"]}
-    return hashlib.md5(
-        json.dumps(data, sort_keys=True).encode()
+# CalculationTask._hash_dict() — proposed change
+def _hash_dict(self):
+    task_data = self.model_dump(mode="json", include={"inputs", "outputs"})
+    # Strip format info from outputs — only output_ids matter for caching.
+    outputs = task_data.get("outputs")
+    if outputs:
+        task_data["outputs"] = {k: {} for k in outputs}
+    # NOTE: "response" is intentionally excluded — the canonical cached
+    # result is the same regardless of raw/document mode.
+    return hashlib.sha256(
+        json.dumps(task_data, sort_keys=True).encode()
     ).hexdigest()
 ```
 
-**Stored value**: `result.model_dump(mode="json")` — a plain dict of `{output_id: value}`.
+This is a modification of the existing `CalculationTask`, not a new function.
 
-**On cache hit**: reconstruct `result_class.model_validate(cached_dict)` → call
-`serialize(output_id, media_type)` at the response boundary.
+### What gets stored in Redis
+
+`BaseProcessResult` is a Pydantic `BaseModel`. When we call `model_dump(mode="json")`:
+- Only **fields** are serialized (the output values).
+- `output_serializers` is a `ClassVar` → **not included** in the dump.
+- Methods like `frequencies_to_json` → **not included**.
+- The stored value is a plain dict: `{"frequencies": {"hello": 3, "world": 2}}`.
+
+This is the desired behavior — Redis holds the canonical data, serialization
+logic lives in the code (the result class), not in the cache.
+
+### Storing requested format for later retrieval
+
+When a client fetches `GET /jobs/{job-id}/results`, the library must deliver the
+format that was originally requested in the execute body. The cached *result* is
+format-agnostic, but the **requested format must be persisted alongside the job**.
+
+Approach: store the original `outputs` dict (with format info) and `response` mode
+in the job status record (already available as part of `CalculationTask` / job metadata
+in Redis). On result retrieval:
+
+1. Look up the job → get `outputs` (with `format.mediaType`) and `response` mode.
+2. Fetch the cached canonical result dict.
+3. Reconstruct the result model: `result_class.model_validate(cached_dict)`.
+4. Call `serialize_result(result, outputs, response_mode, process_description)` → Response.
+
+This means the job record in Redis must persist:
+- `outputs: dict[str, OutputControl]` (the full original request outputs)
+- `response: ResponseType`
+
+These are already on `CalculationTask` — we just need to ensure they're stored
+when the job is created and retrievable when results are fetched.
+
+### On cache hit (during execute)
+
+When the same inputs + output_ids are submitted again (cache hit on the canonical result):
+- The *new* request's `outputs` (with format) and `response` mode determine serialization.
+- The cached canonical dict is reconstructed → serialized per the new request's format.
+- This is correct: same data, possibly different format.
 
 ---
 
@@ -209,16 +252,30 @@ dumps to JSON for caching/transport.
 
 ---
 
-## Open Questions
+## Resolved Questions
 
-1. **Multi-output document mode**: When `response=document`, OGC spec wraps all outputs
-   in a single JSON document. Should `serialize_result()` handle this, or should we keep
-   a separate code path? → Likely: `serialize_result()` returns either a single `Response`
-   (for `raw` mode / single output) or a JSON document dict (for `document` mode).
+1. **Multi-output document mode**: `serialize_result()` handles both modes.
+   - `response=raw` + single output → `Response(content=bytes, media_type=...)` with
+     media type in the HTTP `Content-Type` header.
+   - `response=document` → JSON document conforming to `results.yaml`. Each output
+     is a qualified value with metadata:
+     ```json
+     {
+       "frequencies": {
+         "value": {"hello": 3, "world": 2},
+         "mediaType": "application/json"
+       }
+     }
+     ```
+   - The document mode is the spec's mechanism for preserving metadata that would
+     otherwise be lost (media type, encoding, schema reference). We should include
+     format metadata from the original execution request here — this gives clients
+     full context about what they received without needing to re-query the job.
 
-2. **Streaming / large outputs**: Should `serialize()` return `bytes` or
-   `bytes | AsyncIterator[bytes]`? Start with `bytes`, add streaming later if needed.
+2. **Streaming / large outputs**: `serialize()` returns `bytes`. Streaming can be
+   added later as an opt-in (e.g. `serialize_stream()` returning an async iterator).
 
-3. **Default serializer**: If no `output_serializers` entry exists for an output, fall
-   back to `model_dump_json()` for that field (i.e., plain JSON serialization as default)?
-   → Likely yes, keeps simple cases simple.
+3. **Missing output_serializers**: No silent JSON fallback. If an output has no
+   `output_serializers` entry, registration-time validation raises
+   `ProcessRegistrationError` — the library user must explicitly declare serializers
+   for every output that advertises formats in the process description.
