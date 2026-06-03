@@ -238,14 +238,12 @@ class CalculationTask(BaseModel):
     response: ResponseType = ResponseType.RAW
 
     def _hash_dict(self):
-        # Include response in the cache key so different response modes
-        # (e.g. "raw" vs "document") produce distinct cache entries.
-        # "outputs" already carries per-output format hints when provided.
-        response_value = (
-            self.response.value
-            if hasattr(self.response, "value")
-            else str(self.response)
-        )
+        # The cache key is based on *what* is computed, not *how* it is
+        # serialised.  Since BaseProcessResult stores format-agnostic data and
+        # serialization happens only at the response boundary, two requests that
+        # differ only in mediaType / transmissionMode / response-mode should
+        # reuse the same cached result.
+        #
         # Use model_dump(mode="json") so nested Pydantic models (OutputControl)
         # are always serialised to plain dicts — never stringified via
         # default=str.  This keeps the key consistent whether the task was
@@ -255,10 +253,17 @@ class CalculationTask(BaseModel):
         # Restrict to inputs/outputs to avoid triggering the celery_key
         # computed field, which would cause infinite recursion.
         task_data = self.model_dump(mode="json", include={"inputs", "outputs"})
+        # Reduce each OutputControl to just the output ID (its presence signals
+        # "include this output"); strip format / transmissionMode so format
+        # preferences don't bust the cache.
+        raw_outputs = task_data.get("outputs")
+        if isinstance(raw_outputs, dict):
+            normalised_outputs = sorted(raw_outputs.keys())
+        else:
+            normalised_outputs = None
         data = {
             "inputs": task_data.get("inputs"),
-            "outputs": task_data.get("outputs"),
-            "response": response_value,
+            "outputs": normalised_outputs,
         }
         return hashlib.sha256(
             json.dumps(data, sort_keys=True).encode()
