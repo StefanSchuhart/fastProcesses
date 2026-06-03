@@ -9,7 +9,7 @@ from typing import Any, Dict
 import kombu.exceptions
 from celery import Task
 from celery.exceptions import SoftTimeLimitExceeded
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from fastprocesses.common import (
     celery_app,
