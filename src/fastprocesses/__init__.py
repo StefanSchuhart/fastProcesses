@@ -11,13 +11,13 @@ from fastprocesses.core.output_schema_resolver import (
     OutputSchemaResolver,
     ResolvedOutputFormat,
 )
-from fastprocesses.core.outputs_handler import OutputsHandler
+from fastprocesses.core.outputs_handler import serialize_result
 
 __all__ = [
     "BaseProcessResult",
     "OutputSchemaResolver",
-    "OutputsHandler",
     "ProcessResult",
     "ResolvedOutputFormat",
     "SerializationError",
+    "serialize_result",
 ]
