@@ -1,4 +1,4 @@
-# Output Format Resolution — Implementation Plan
+# [REJECTED] Output Format Resolution — Implementation Plan
 ## fastprocesses library
 
 > **Purpose**: Guide for implementing OGC API Processes–compliant output format

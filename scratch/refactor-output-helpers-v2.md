@@ -1,4 +1,4 @@
-# Output Helpers v2 — Refactoring Plan
+# [DONE] Output Helpers v2 — Refactoring Plan
 
 ## Goal
 

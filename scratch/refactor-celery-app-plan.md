@@ -1,4 +1,4 @@
-# Plan: Refactor `celery_app.py` — Strategy Pattern by Process Type
+# [DONE] Plan: Refactor `celery_app.py` — Strategy Pattern by Process Type
 
 ## TL;DR
 
