@@ -40,6 +40,7 @@ signal.signal(signal.SIGTERM, sigterm_handler)
 signal.signal(signal.SIGINT, sigint_handler)
 
 
+
 class CacheResultTask(Task):
     def on_success(self, retval: dict | BaseModel, task_id, args, kwargs):
         if retval is None:
@@ -89,6 +90,31 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
         job_id,
     )
 
+    # Check cache before running the pipeline — avoids re-execution for
+    # identical inputs (especially important for parallel/scatter processes
+    # where the full chord would otherwise be dispatched again).
+    try:
+        calculation_task = CalculationTask(**data)
+        cached_result = temp_result_cache.get(key=calculation_task.celery_key)
+        if cached_result is not None:
+            logger.info(
+                "Cache hit in worker for process_id={}, job_id={}, key={}",
+                process_id,
+                job_id,
+                calculation_task.celery_key,
+            )
+            update_job_status(
+                job_id,
+                100,
+                "Result retrieved from cache.",
+                JobStatusCode.SUCCESSFUL,
+                started=datetime.now(timezone.utc),
+                process_id=process_id,
+            )
+            return cached_result
+    except Exception as e:
+        logger.debug("Cache lookup failed (non-fatal), proceeding: {}", e)
+
     process = _load_process(process_id, job_id)
     data = _run_pipeline(process, process_id, data, job_id)
 
@@ -99,6 +125,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
             "Process started",
             JobStatusCode.RUNNING,
             started=datetime.now(timezone.utc),
+            process_id=process_id,
         )
         result = get_executor(process).execute(
             process, process_id, data, job_id, serialized_data_str, job_progress_callback
@@ -168,7 +195,8 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
         task_elapsed,
     )
     update_job_status(job_id, 100, "Process completed", JobStatusCode.SUCCESSFUL)
-    return result.model_dump(exclude_none=True)
+
+    return result.model_dump(mode="json")
 
 
 @celery_app.task(name="fastprocesses.check_cache")

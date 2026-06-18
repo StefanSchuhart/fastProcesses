@@ -123,7 +123,10 @@ class Schema(BaseModel):
 class ProcessInput(BaseModel):
     title: str
     description: str
-    scheme: Schema = Field(alias="schema")
+    scheme: Schema = Field(
+        validation_alias=AliasChoices("scheme", "schema"),
+        serialization_alias="schema",
+    )
     minOccurs: int = 1
     maxOccurs: Optional[int] = 1
     metadata: Optional[Dict[str, Any]] = None
@@ -140,7 +143,10 @@ class Metadata(BaseModel):
 class ProcessOutput(BaseModel):
     title: str
     description: str
-    scheme: Schema = Field(alias="schema")
+    scheme: Schema = Field(
+        validation_alias=AliasChoices("scheme", "schema"),
+        serialization_alias="schema",
+    )
     metadata: List[Metadata] = []
     keywords: List[str] = []
 
@@ -214,7 +220,7 @@ class OutputControl(BaseModel):
 
 class ProcessExecRequestBody(BaseModel):
     inputs: Dict[str, Any]
-    outputs: dict[str, dict[str, OutputControl]] | None = None
+    outputs: dict[str, OutputControl] | None = None
     mode: Optional[ExecutionMode] = ExecutionMode.ASYNC
     response: ResponseType = ResponseType.RAW
 
@@ -226,15 +232,41 @@ def deserialize_json(value: Any) -> Any:
 class CalculationTask(BaseModel):
     inputs: Annotated[Dict[str, Any], AfterValidator(deserialize_json)]
     outputs: (
-        Annotated[dict[str, dict[str, OutputControl]], AfterValidator(deserialize_json)]
+        Annotated[dict[str, OutputControl], AfterValidator(deserialize_json)]
         | None
     ) = None
     response: ResponseType = ResponseType.RAW
 
     def _hash_dict(self):
-        data = {"inputs": self.inputs, "outputs": self.outputs}
+        # The cache key is based on *what* is computed, not *how* it is
+        # serialised.  Since BaseProcessResult stores format-agnostic data and
+        # serialization happens only at the response boundary, two requests that
+        # differ only in mediaType / transmissionMode / response-mode should
+        # reuse the same cached result.
+        #
+        # Use model_dump(mode="json") so nested Pydantic models (OutputControl)
+        # are always serialised to plain dicts — never stringified via
+        # default=str.  This keeps the key consistent whether the task was
+        # built via model_validate (Pydantic coerces nested models) or via
+        # **dict unpacking inside finalize_* chord callbacks (where nested
+        # fields may remain as raw dicts, producing a different str() repr).
+        # Restrict to inputs/outputs to avoid triggering the celery_key
+        # computed field, which would cause infinite recursion.
+        task_data = self.model_dump(mode="json", include={"inputs", "outputs"})
+        # Reduce each OutputControl to just the output ID (its presence signals
+        # "include this output"); strip format / transmissionMode so format
+        # preferences don't bust the cache.
+        raw_outputs = task_data.get("outputs")
+        if isinstance(raw_outputs, dict):
+            normalised_outputs = sorted(raw_outputs.keys())
+        else:
+            normalised_outputs = None
+        data = {
+            "inputs": task_data.get("inputs"),
+            "outputs": normalised_outputs,
+        }
         return hashlib.sha256(
-            json.dumps(data, sort_keys=True, default=str).encode()
+            json.dumps(data, sort_keys=True).encode()
         ).hexdigest()
 
     @computed_field

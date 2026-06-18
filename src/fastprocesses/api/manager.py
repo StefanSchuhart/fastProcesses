@@ -269,6 +269,7 @@ class SyncExecutionStrategy(ExecutionStrategy):
         self.process_manager.job_status_cache.put(f"job:{task.id}", job_status)
 
         # Wait for result with timeout
+        deadline = time.monotonic() + settings.FP_SYNC_EXECUTION_TIMEOUT_SECONDS
         async_result = AsyncResult(task.id)
         try:
             get_start = time.monotonic()
@@ -296,6 +297,24 @@ class SyncExecutionStrategy(ExecutionStrategy):
         except Exception as e:
             logger.error(f"Synchronous execution for job {task.id} failed: {e}")
             raise JobFailedError(task.id, repr(e))
+
+        # Chord-dispatched processes (BaseParallelProcess / BaseScatterProcess)
+        # return None from execute_process while the actual merged result is
+        # stored in temp_result_cache by the finalize_* callback.  Poll the
+        # cache under the job_id key for the remaining sync window.
+        if result is None:
+            while time.monotonic() < deadline:
+                result = self.process_manager.cache.get(key=task.id)
+                if result is not None:
+                    break
+                time.sleep(0.1)
+            if result is None:
+                # Finalize task did not complete within the sync timeout.
+                # Tell the client to poll /jobs/{job_id}/results instead.
+                response = ProcessExecResponse(
+                    status="running", jobID=task.id, type="process"
+                )
+                return response
 
         # Update job status to successful
         job_status = JobStatusInfo.model_validate(

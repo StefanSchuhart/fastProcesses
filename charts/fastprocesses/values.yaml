@@ -110,6 +110,12 @@ config:
     brokerHost: "redis"
     brokerPort: 6379
     brokerDb: 0
+    # Result backend Redis — defaults to the broker instance when unset.
+    # Set these to a separate Redis instance to isolate large result payloads
+    # from the task queue broker and prevent memory-pressure cross-contamination.
+    resultBackendHost: ""   # defaults to brokerHost when empty
+    resultBackendPort: ""   # defaults to brokerPort when empty
+    resultBackendDb: ""     # defaults to brokerDb when empty
     resultsTtlDays: 7
     taskTlimitHard: 1800 # seconds
     taskTlimitSoft: 1500 # seconds

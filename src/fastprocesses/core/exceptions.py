@@ -59,6 +59,17 @@ class BrokerUnavailableError(FastProcessesError):
         super().__init__(f"Broker unavailable: {detail}")
 
 
+class ProcessRegistrationError(FastProcessesError):
+    """Raised when a process class fails registration-time validation."""
+
+    def __init__(self, process_id: str, reason: str):
+        super().__init__(f"Cannot register process '{process_id}': {reason}")
+
+
+class SerializationError(FastProcessesError):
+    """Raised when a ProcessResult cannot serialize to the requested media type."""
+
+
 class SSRFBlockedError(FastProcessesError):
     """Raised when a remote URL is blocked by SSRF protection."""
 

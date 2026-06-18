@@ -11,7 +11,7 @@ Each step is a @parallel_step method; merge_results stitches them together.
 """
 import json
 from contextlib import ExitStack
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic import BaseModel
@@ -219,9 +219,17 @@ def test_no_parallel_steps_raises(process: BaseScatterProcess):
 
 def test_execute_scatter_step_task(eager_celery, process):
     """
-    execute_scatter_step is the per-step subtask.
-    It looks up the step by name, calls it, and returns a serialisation-safe dict.
+    execute_scatter_step loads its input from temp_result_cache (claim-check),
+    runs the step, stores the result back in the cache, and returns a tiny
+    marker dict instead of the full result.
     """
+    store = {
+        "chord:payload:test-job": {
+            "step_input": EXEC_BODY,
+            "original_input": EXEC_BODY,
+        }
+    }
+
     with ExitStack() as stack:
         mock_registry = stack.enter_context(
             patch("fastprocesses.worker.chord_tasks.get_process_registry")
@@ -229,41 +237,30 @@ def test_execute_scatter_step_task(eager_celery, process):
         stack.enter_context(
             patch("fastprocesses.worker.chord_tasks._increment_and_report_progress")
         )
+        mock_cache = stack.enter_context(
+            patch("fastprocesses.worker.chord_tasks.temp_result_cache")
+        )
+        mock_cache.get.side_effect = lambda key: store.get(key)
+        mock_cache.put.side_effect = lambda key, value: store.update({key: value})
         mock_registry.return_value.get_process.return_value = process
+
         result = execute_scatter_step.delay(
-            "geo_enrich", "test-job", 3, "get_elevation", json.dumps(EXEC_BODY)
+            "geo_enrich", "test-job", 3, "get_elevation", "chord:payload:test-job"
         ).get()
 
-    assert result == {"value_m": 342.5}
+    assert result == {"__claim_check__": "chord:result:test-job:get_elevation"}
+    assert store["chord:result:test-job:get_elevation"] == {"value_m": 342.5}
 
 
 def test_execute_scatter_step_unknown_step_raises(eager_celery, process):
     """Requesting a non-existent step name raises ValueError."""
-    with ExitStack() as stack:
-        mock_registry = stack.enter_context(
-            patch("fastprocesses.worker.chord_tasks.get_process_registry")
-        )
-        stack.enter_context(patch("fastprocesses.worker.chord_tasks.update_job_status"))
-        stack.enter_context(
-            patch("fastprocesses.worker.chord_tasks._increment_and_report_progress")
-        )
-        mock_registry.return_value.get_process.return_value = process
-        with pytest.raises(ValueError, match="not found"):
-            execute_scatter_step.delay(
-                "geo_enrich", "test-job", 1, "nonexistent_step", json.dumps(EXEC_BODY)
-            ).get()
+    store = {
+        "chord:payload:test-job": {
+            "step_input": EXEC_BODY,
+            "original_input": EXEC_BODY,
+        }
+    }
 
-
-def test_run_scatter_fans_out_and_merges(
-    eager_celery, process, serialized_data
-):
-    """
-    _run_scatter dispatches a chord: one execute_scatter_step per @parallel_step
-    + a finalize_scatter callback, all with the same input.  With
-    task_always_eager=True the chord runs synchronously, so finalize_scatter
-    has already stored the merged result in the cache by the time _run_scatter
-    returns.
-    """
     with ExitStack() as stack:
         mock_registry = stack.enter_context(
             patch("fastprocesses.worker.chord_tasks.get_process_registry")
@@ -275,35 +272,28 @@ def test_run_scatter_fans_out_and_merges(
         mock_cache = stack.enter_context(
             patch("fastprocesses.worker.chord_tasks.temp_result_cache")
         )
+        mock_cache.get.side_effect = lambda key: store.get(key)
         mock_registry.return_value.get_process.return_value = process
-        _run_scatter(
-            process=process,
-            process_id="geo_enrich",
-            data=EXEC_BODY,
-            job_id="test-job-scatter-1",
-            serialized_data=serialized_data,
-        )
-
-    assert mock_cache.put.called
-    cached = mock_cache.put.call_args[1]["value"]
-    assert cached["elevation_m"] == 342.5
-    assert cached["land_use"] == "forest"
-    assert cached["temperature_c"] == 12.3
+        with pytest.raises(ValueError, match="not found"):
+            execute_scatter_step.delay(
+                "geo_enrich", "test-job", 1, "nonexistent_step", "chord:payload:test-job"
+            ).get()
 
 
-def test_run_scatter_dispatches_one_subtask_per_step(
+def test_run_scatter_fans_out_and_merges(
     eager_celery, process, serialized_data
 ):
     """
-    The number of chord-header subtasks equals the number of @parallel_step
-    methods — confirming each step gets its own worker slot in production.
+    _run_scatter stores a single payload in temp_result_cache and dispatches a
+    chord of N steps + finalize_scatter.  With task_always_eager=True the
+    whole chord runs synchronously using the dict-based cache mock, so
+    finalize_scatter has already merged and stored the result by the time
+    _run_scatter returns.
     """
-    subtask_args: list[tuple] = []
-    original_s = execute_scatter_step.s
+    store: dict = {}
 
-    def recording_s(*args, **kwargs):
-        subtask_args.append(args)
-        return original_s(*args, **kwargs)
+    def cache_put(key, value):
+        store[key] = value
 
     with ExitStack() as stack:
         mock_registry = stack.enter_context(
@@ -313,13 +303,55 @@ def test_run_scatter_dispatches_one_subtask_per_step(
         stack.enter_context(
             patch("fastprocesses.worker.chord_tasks._increment_and_report_progress")
         )
+        mock_cache = stack.enter_context(
+            patch("fastprocesses.worker.chord_tasks.temp_result_cache")
+        )
+        mock_cache.get.side_effect = lambda key: store.get(key)
+        mock_cache.put.side_effect = cache_put
+        mock_cache.delete.side_effect = lambda key: store.pop(key, None)
+        mock_registry.return_value.get_process.return_value = process
+        _run_scatter(
+            process=process,
+            process_id="geo_enrich",
+            data=EXEC_BODY,
+            job_id="test-job-scatter-1",
+            serialized_data=serialized_data,
+        )
+
+    # finalize_scatter stored the merged result under the job_id key
+    cached = store["test-job-scatter-1"]
+    assert cached["elevation_m"] == 342.5
+    assert cached["land_use"] == "forest"
+    assert cached["temperature_c"] == 12.3
+
+
+def test_run_scatter_dispatches_one_subtask_per_step(
+    process, serialized_data
+):
+    """
+    The number of chord-header subtasks equals the number of @parallel_step
+    methods.  Each subtask receives a claim-check key string (not serialised
+    data) and all steps share the same key.
+    """
+    subtask_args: list[tuple] = []
+    original_s = execute_scatter_step.s
+
+    def recording_s(*args, **kwargs):
+        subtask_args.append(args)
+        return original_s(*args, **kwargs)
+
+    mock_chord = MagicMock()
+    with ExitStack() as stack:
+        # Patch chord itself so no tasks actually run — we only verify dispatch.
+        stack.enter_context(
+            patch("fastprocesses.worker.chord_tasks.chord", return_value=mock_chord)
+        )
         stack.enter_context(
             patch("fastprocesses.worker.chord_tasks.temp_result_cache")
         )
         stack.enter_context(
             patch.object(execute_scatter_step, "s", side_effect=recording_s)
         )
-        mock_registry.return_value.get_process.return_value = process
         _run_scatter(
             process=process,
             process_id="geo_enrich",
@@ -331,26 +363,33 @@ def test_run_scatter_dispatches_one_subtask_per_step(
     expected_steps = get_parallel_steps(process)
     assert len(subtask_args) == len(expected_steps)  # 3 steps → 3 subtasks
 
-    # Every step receives the same serialised input
-    # args = (process_id, job_id, total, step_name, serialized_input)
-    dispatched_data = [json.loads(args[4]) for args in subtask_args]
-    assert all(d == EXEC_BODY for d in dispatched_data)
+    # All steps receive the same payload key (claim-check), not raw data
+    dispatched_keys = [args[4] for args in subtask_args]
+    assert len(set(dispatched_keys)) == 1
+    assert dispatched_keys[0].startswith("chord:payload:")
 
 
 def test_finalize_scatter_merges_and_caches(
     eager_celery, process, serialized_data
 ):
     """
-    finalize_scatter is the chord callback.  Given the per-step results it
-    reassociates them with step names, calls merge_results, caches the output,
-    and marks the job as SUCCESSFUL.
+    finalize_scatter resolves claim-check keys, calls merge_results, caches
+    the output, and marks the job as SUCCESSFUL.
     """
-    step_results = [
-        {"value_m": 342.5},   # get_elevation
-        {"category": "forest"},  # get_land_use
-        {"celsius": 12.3},    # get_temperature
-    ]
+    job_id = "test-job-scatter-3"
     step_names = ["get_elevation", "get_land_use", "get_temperature"]
+    store = {
+        f"chord:result:{job_id}:get_elevation": {"value_m": 342.5},
+        f"chord:result:{job_id}:get_land_use": {"category": "forest"},
+        f"chord:result:{job_id}:get_temperature": {"celsius": 12.3},
+        f"chord:payload:{job_id}": {
+            "step_input": EXEC_BODY,
+            "original_input": json.loads(serialized_data),
+        },
+    }
+    step_results = [
+        {"__claim_check__": f"chord:result:{job_id}:{n}"} for n in step_names
+    ]
 
     with ExitStack() as stack:
         mock_registry = stack.enter_context(
@@ -362,18 +401,21 @@ def test_finalize_scatter_merges_and_caches(
         mock_cache = stack.enter_context(
             patch("fastprocesses.worker.chord_tasks.temp_result_cache")
         )
+        mock_cache.get.side_effect = lambda key: store.get(key)
+        mock_cache.put.side_effect = lambda key, value: store.update({key: value})
+        mock_cache.delete.side_effect = lambda key: store.pop(key, None)
         mock_registry.return_value.get_process.return_value = process
         merged = finalize_scatter(
             step_results,
             step_names,
             "geo_enrich",
-            "test-job-scatter-3",
-            serialized_data,
+            job_id,
+            f"chord:payload:{job_id}",
         )
 
     assert merged["elevation_m"] == 342.5
     assert merged["land_use"] == "forest"
     assert merged["temperature_c"] == 12.3
-    assert mock_cache.put.called
+    assert store.get(job_id) == merged  # stored under job_id
     last_status = mock_update.call_args_list[-1][0][3]
     assert last_status == "successful"

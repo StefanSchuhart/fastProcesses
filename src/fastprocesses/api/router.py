@@ -1,3 +1,4 @@
+import typing
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request, Response, status
@@ -29,6 +30,45 @@ from fastprocesses.core.models import (
     ProcessExecResponse,
     ProcessList,
 )
+from fastprocesses.core.output_protocol import BaseProcessResult
+from fastprocesses.core.outputs_handler import serialize_result
+
+
+def _get_result_class(
+    process,
+) -> type[BaseProcessResult] | None:
+    """Return the concrete BaseProcessResult subclass for this process's output.
+
+    Checks, in order:
+    1. execute() return annotation — used by BaseProcess subclasses.
+    2. merge_results() return annotation — used by BaseParallelProcess /
+       BaseScatterProcess subclasses where the final result comes from the
+       finalize/merge step, not from execute() directly.
+
+    Returns None when no concrete subclass is found (legacy processes that
+    return a plain BaseModel or have no annotation).
+    """
+
+    def _concrete(return_type: object) -> type[BaseProcessResult] | None:
+        """Return return_type iff it is a concrete BaseProcessResult subclass."""
+        if (
+            isinstance(return_type, type)
+            and issubclass(return_type, BaseProcessResult)
+            and return_type is not BaseProcessResult
+        ):
+            return return_type
+        return None
+
+    cls = type(process)
+    for method_name in ("execute", "merge_results"):
+        try:
+            hints = typing.get_type_hints(getattr(cls, method_name))
+            result = _concrete(hints.get("return"))
+            if result is not None:
+                return result
+        except Exception:
+            pass
+    return None
 
 
 def get_router(
@@ -201,7 +241,17 @@ def get_router(
             # If result is not a ProcessExecResponse, treat as ready result (sync)
             if not isinstance(result, ProcessExecResponse):
                 response.status_code = status.HTTP_200_OK
-                return result
+                exec_body = ProcessExecRequestBody.model_validate_json(body)
+                process = process_manager.process_registry.get_process(process_id)
+                result_class = _get_result_class(process)
+                if result_class is not None and isinstance(result, dict):
+                    return serialize_result(
+                        result_class.model_validate(result),
+                        (exec_body.outputs or {}),
+                        exec_body.response or "raw",
+                        process.process_description,
+                    )
+                return JSONResponse(content=result)
 
             # Async or Timeout: return job info
             response.status_code = status.HTTP_201_CREATED
@@ -323,10 +373,27 @@ def get_router(
             raise HTTPException(status_code=404, detail=exception)
 
     @router.get("/jobs/{job_id}/results", response_model_exclude_none=True)
-    async def get_job_result(job_id: str) -> dict | OGCExceptionResponse:
+    async def get_job_result(job_id: str) -> Any:
         logger.debug(f"Get job result endpoint accessed for job ID: {job_id}")
         try:
-            return process_manager.get_job_result(job_id)
+            result = process_manager.get_job_result(job_id)
+            job_status = process_manager.get_job_status(job_id)
+            process_id = job_status.processID
+            if process_id is not None:
+                process = process_manager.process_registry.get_process(process_id)
+                result_class = _get_result_class(process)
+                if result_class is not None and isinstance(result, dict):
+                    # Retrieve the original outputs + response mode from the job record.
+                    # These are stored in the CalculationTask that was submitted with the job.
+                    # For now fall back to returning all outputs in document mode when
+                    # the job record doesn't carry per-request format preferences.
+                    return serialize_result(
+                        result_class.model_validate(result),
+                        {},  # empty → resolve all described outputs
+                        "document",
+                        process.process_description,
+                    )
+            return JSONResponse(content=result)
 
         # ValueError: Here, 'job id does not exist' is meant.
         except JobNotFoundError as e:

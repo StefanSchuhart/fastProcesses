@@ -12,6 +12,7 @@ from referencing.exceptions import Unresolvable as _UnresolvableRef
 
 from fastprocesses.core.logging import logger
 from fastprocesses.core.models import OutputControl, ProcessDescription
+from fastprocesses.core.output_protocol import BaseProcessResult
 from fastprocesses.core.types import JobProgressCallback
 
 # Maps JSON Schema primitive type names to their Python equivalents.
@@ -66,7 +67,7 @@ class BaseProcess(ABC):
         self,
         exec_body: Dict[str, Any],
         job_progress_callback: JobProgressCallback | None = None,
-    ) -> BaseModel | Awaitable[BaseModel]:
+    ) -> BaseProcessResult | Awaitable[BaseProcessResult]:
         """
         Executes the process with given inputs.
 
@@ -85,10 +86,10 @@ class BaseProcess(ABC):
         self,
         exec_body: dict,
         job_progress_callback: JobProgressCallback | None = None,
-    ) -> BaseModel:
+    ) -> BaseProcessResult:
         """
         Calls the execute method, handling both sync and async implementations.
-        Always returns a BaseModel, never an awaitable.
+        Always returns a BaseModel or a dictionary, never an awaitable.
         """
         result = self.execute(exec_body, job_progress_callback=job_progress_callback)
         if inspect.isawaitable(result):
@@ -320,7 +321,7 @@ class BaseProcess(ABC):
         return True
 
     def validate_outputs(
-        self, outputs: dict[str, dict[str, OutputControl]] | None
+        self, outputs: dict[str, OutputControl] | None
     ) -> bool:
         """
         Validates the outputs parameter against the process description.
@@ -462,7 +463,9 @@ class BaseParallelProcess(BaseProcess, ABC):
         ...
 
     @abstractmethod
-    def merge_results(self, results: List[Dict[str, Any]]) -> BaseModel:
+    def merge_results(
+        self, results: List[Dict[str, Any]]
+    ) -> BaseProcessResult:
         """
         Combine N partial results into the final output.
 
@@ -472,7 +475,7 @@ class BaseParallelProcess(BaseProcess, ABC):
                 ``execute_single`` (i.e. the output of ``model.model_dump()``).
 
         Returns:
-            The merged ``BaseModel`` to be stored as the job result.
+            A ``BaseProcessResult`` instance holding the final output values.
         """
         ...
 
@@ -486,7 +489,7 @@ class BaseParallelProcess(BaseProcess, ABC):
         self,
         exec_body: Dict[str, Any],
         job_progress_callback: JobProgressCallback | None = None,
-    ) -> BaseModel:
+    ) -> BaseProcessResult:
         """
         Serial fallback: runs ``execute_single`` for each item in sequence.
 
@@ -603,7 +606,11 @@ class BaseScatterProcess(BaseProcess, ABC):
     """
 
     @abstractmethod
-    def merge_results(self, results: Dict[str, Any], exec_body: Dict[str, Any]) -> BaseModel:
+    def merge_results(
+        self,
+        results: Dict[str, Any],
+        exec_body: Dict[str, Any],
+    ) -> BaseProcessResult:
         """
         Combine the results of all parallel steps into the final output.
 
@@ -618,7 +625,7 @@ class BaseScatterProcess(BaseProcess, ABC):
                 results.
 
         Returns:
-            The merged ``BaseModel`` to be stored as the job result.
+            A ``BaseProcessResult`` instance holding the final output values.
         """
         ...
 
@@ -630,7 +637,7 @@ class BaseScatterProcess(BaseProcess, ABC):
         self,
         exec_body: Dict[str, Any],
         job_progress_callback: JobProgressCallback | None = None,
-    ) -> BaseModel:
+    ) -> BaseProcessResult:
         """
         Serial fallback: runs each ``@parallel_step`` in definition order.
 
