@@ -53,7 +53,6 @@ independent Celery task so N workers process N chunks truly in parallel.
                  "words": ["alpha","beta","gamma","delta","epsilon","zeta","eta"]
                },
                "outputs": {"words": {}},
-               "mode": "async"
              }' | python3 -m json.tool
 
     # → 3 tasks land in the Redis queue (one per chunk)
