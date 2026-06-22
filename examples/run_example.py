@@ -69,8 +69,7 @@ each receive the full input and run on separate workers simultaneously.
          -H "Content-Type: application/json" \
          -d '{
                "inputs": {"text": "the quick brown fox jumps over the lazy dog"},
-               "outputs": {"result": {}},
-               "mode": "async"
+               "outputs": {"result": {}}
              }' | python3 -m json.tool
 
     # → 3 tasks land in the Redis queue (one per step)
