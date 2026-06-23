@@ -104,7 +104,10 @@ class BaseProcess(ABC):
         else:
             return result
 
-    def resolve_remote_inputs(self, exec_body: Dict[str, Any]) -> Dict[str, Any]:
+    def resolve_remote_inputs(
+            self, exec_body: Dict[str, Any],
+            job_progress_callback: JobProgressCallback | None = None
+        ) -> Dict[str, Any]:
         """
         Substitutes URI-valued inputs with the downloaded data they reference.
 
@@ -238,7 +241,9 @@ class BaseProcess(ABC):
 
         return True
 
-    def validate_inputs(self, inputs: Dict[str, Any]) -> bool:
+    def validate_inputs(
+            self, inputs: Dict[str, Any],
+        ) -> bool:
         """
         Validates the input data against the process description.
 
@@ -464,7 +469,8 @@ class BaseParallelProcess(BaseProcess, ABC):
 
     @abstractmethod
     def merge_results(
-        self, results: List[Dict[str, Any]]
+        self, results: List[Dict[str, Any]],
+        job_progress_callback: JobProgressCallback | None = None,
     ) -> BaseProcessResult:
         """
         Combine N partial results into the final output.
@@ -610,6 +616,7 @@ class BaseScatterProcess(BaseProcess, ABC):
         self,
         results: Dict[str, Any],
         exec_body: Dict[str, Any],
+        job_progress_callback: JobProgressCallback | None = None,
     ) -> BaseProcessResult:
         """
         Combine the results of all parallel steps into the final output.

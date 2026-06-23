@@ -116,7 +116,9 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
         logger.debug("Cache lookup failed (non-fatal), proceeding: {}", e)
 
     process = _load_process(process_id, job_id)
-    data = _run_pipeline(process, process_id, data, job_id)
+    data = _run_pipeline(
+        process, process_id, data, job_id, job_progress_callback
+    )
 
     try:
         update_job_status(
