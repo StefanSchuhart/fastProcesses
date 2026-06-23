@@ -8,6 +8,7 @@ from fastprocesses.core.exceptions import (
 )
 from fastprocesses.core.logging import logger
 from fastprocesses.core.models import JobStatusCode
+from fastprocesses.core.types import JobProgressCallback
 from fastprocesses.processes.process_registry import get_process_registry
 from fastprocesses.worker.job_status import update_job_status
 
@@ -38,7 +39,8 @@ def _load_process(process_id: str, job_id: str) -> BaseProcess:
 
 
 def _run_pipeline(
-    process: BaseProcess, process_id: str, data: dict, job_id: str
+    process: BaseProcess, process_id: str, data: dict, job_id: str,
+    job_progress_callback: JobProgressCallback | None = None,
 ) -> dict:
     """
     Runs the pre-execution pipeline: validate → resolve remote inputs → late_validate.
@@ -47,7 +49,11 @@ def _run_pipeline(
     Returns the (possibly modified) data dict after remote input resolution.
     """
     # Step 1: validate wire-format inputs against the process description schema
-    update_job_status(job_id, 0, "Validating inputs.", JobStatusCode.RUNNING)
+    update_job_status(
+        job_id, 0,
+        "Pre-process step 1: Validating inputs against process description.",
+        JobStatusCode.RUNNING
+    )
     try:
         process.validate_inputs(data["inputs"])
     except ValueError as e:
@@ -56,9 +62,13 @@ def _run_pipeline(
         raise InputValidationError(process_id, repr(e))
 
     # Step 2: resolve remote inputs (URI strings → downloaded data)
-    update_job_status(job_id, 0, "Resolving remote inputs.", JobStatusCode.RUNNING)
+    update_job_status(
+        job_id, 0,
+        "Pre-process step 2: Resolving remote inputs.",
+        JobStatusCode.RUNNING
+    )
     try:
-        data = process.resolve_remote_inputs(data)
+        data = process.resolve_remote_inputs(data, job_progress_callback)
     except (SSRFBlockedError, ValueError) as e:
         logger.error(
             "Remote input resolution failed for process {}: {}", process_id, e
@@ -67,6 +77,11 @@ def _run_pipeline(
         raise InputValidationError(process_id, repr(e))
 
     # Step 3: late validation of resolved inputs (no-op by default)
+    update_job_status(
+        job_id, 0,
+        "Pre-process step 3: Validating remotely resolved inputs.",
+        JobStatusCode.RUNNING
+    )
     try:
         process.late_validate(data["inputs"])
     except ValueError as e:
