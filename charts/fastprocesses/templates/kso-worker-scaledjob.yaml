@@ -58,7 +58,7 @@ spec:
               - --without-gossip
             {{- end }}
             env:
-              - name: CELERY_BROKER_PASSWORD
+              - name: FP_CELERY_BROKER_PASSWORD
                 {{- if .Values.config.celery.existingSecret }}
                 valueFrom:
                   secretKeyRef:
@@ -67,7 +67,7 @@ spec:
                 {{- else }}
                 value: ""
                 {{- end }}
-              - name: RESULT_CACHE_PASSWORD
+              - name: FP_RESULT_CACHE_PASSWORD
                 {{- if .Values.config.resultCache.existingSecret }}
                 valueFrom:
                   secretKeyRef:
