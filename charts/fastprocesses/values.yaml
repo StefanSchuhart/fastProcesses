@@ -98,6 +98,9 @@ config:
   apiTitle: "fastprocesses API"
   apiDescription: "An OGC API Processes implementation powered by fastprocesses."
 
+  worker:
+    allowedInputOrigins: []
+
   resultCache:
     host: "redis"
     port: 6379
