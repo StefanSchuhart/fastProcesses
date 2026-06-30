@@ -13,12 +13,12 @@ Coverage:
   4. BaseParallelProcess with BaseProcessResult — merge_results path.
 """
 import json
+import warnings
 from contextlib import ExitStack
-from typing import ClassVar
+from typing import Any, ClassVar
 from unittest.mock import MagicMock, patch
 
 import pytest
-from typing import Any
 
 from fastprocesses.common import celery_app
 from fastprocesses.core.base_process import BaseParallelProcess, BaseProcess
@@ -38,6 +38,26 @@ from fastprocesses.worker.celery_app import execute_process as _execute_process
 
 # Cast to Any so Pyright can see the Celery Task attributes (.delay, .apply, …)
 execute_process: Any = _execute_process
+
+
+def test_calculation_task_outputs_no_serializer_warning():
+    """dict input for outputs is coerced to OutputControl without warnings."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        task = CalculationTask(
+            inputs={"text": _TEXT},
+            outputs={
+                "frequencies": {
+                    "transmissionMode": "value",
+                    "format": {"mediaType": "text/csv"},
+                }
+            },
+            response=ResponseType.RAW,
+        )
+        task.model_dump(mode="json")
+
+    messages = [str(w.message) for w in caught]
+    assert not any("Expected `OutputControl`" in m for m in messages)
 
 
 # ---------------------------------------------------------------------------
