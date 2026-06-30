@@ -72,10 +72,13 @@ def execute_parallel_item(
     """
     item = temp_result_cache.get(item_key)
     if item is None:
-        raise RuntimeError(
-            f"Claim-check data not found in cache for key '{item_key}'. "
-            "The temp_result_cache entry may have expired or been evicted."
+        logger.error(
+            "Claim-check data not found for key '{}' (job {}). "
+            "Cache entry may have expired or been evicted.",
+            item_key,
+            job_id,
         )
+        return {"__error__": f"Claim-check data not found in cache for key '{item_key}'"}
     try:
         process = cast(
             BaseParallelProcess,
@@ -99,14 +102,14 @@ def execute_parallel_item(
         _increment_and_report_progress(job_id, total)
         return {"__claim_check__": rkey}
     except Exception as exc:
-        update_job_status(
+        logger.error(
+            "Parallel subtask failed for process {} (job {}): {}",
+            process_id,
             job_id,
-            0,
-            f"Parallel subtask failed: {exc}",
-            JobStatusCode.FAILED,
-            process_id=process_id,
+            exc,
+            exc_info=True,
         )
-        raise
+        return {"__error__": str(exc)}
 
 
 def _run_parallel(
@@ -168,6 +171,29 @@ def finalize_parallel(
     actual results, caches the final output, and updates the job status.
     """
     process = cast(BaseParallelProcess, get_process_registry().get_process(process_id))
+
+    errors = [r for r in sub_results if isinstance(r, dict) and "__error__" in r]
+    if errors:
+        error_msg = errors[0]["__error__"]
+        update_job_status(
+            job_id,
+            0,
+            f"A parallel subtask failed: {error_msg}",
+            JobStatusCode.FAILED,
+        )
+        _cleanup_progress_counter(job_id)
+        temp_result_cache.delete(meta_key)
+        logger.error(
+            "Parallel chord failed for process {} (job {}): {}/{} subtask(s) failed. "
+            "First error: {}",
+            process_id,
+            job_id,
+            len(errors),
+            len(sub_results),
+            error_msg,
+        )
+        return None
+
     try:
         actual_results: list[dict] = []
         for result_ref in sub_results:
@@ -242,10 +268,13 @@ def execute_scatter_step(
     """
     payload = temp_result_cache.get(payload_key)
     if payload is None:
-        raise RuntimeError(
-            f"Claim-check payload not found in cache for key '{payload_key}'. "
-            "The temp_result_cache entry may have expired or been evicted."
+        logger.error(
+            "Claim-check payload not found for key '{}' (job {}). "
+            "Cache entry may have expired or been evicted.",
+            payload_key,
+            job_id,
         )
+        return {"__error__": f"Claim-check payload not found in cache for key '{payload_key}'"}
     data: dict = payload["step_input"]
     try:
         process = cast(
@@ -277,14 +306,15 @@ def execute_scatter_step(
         _record_scatter_step_done(job_id, step_name, total)
         return {"__claim_check__": rkey}
     except Exception as exc:
-        update_job_status(
+        logger.error(
+            "Scatter step '{}' failed for process {} (job {}): {}",
+            step_name,
+            process_id,
             job_id,
-            0,
-            f"Scatter step '{step_name}' failed: {exc}",
-            JobStatusCode.FAILED,
-            process_id=process_id,
+            exc,
+            exc_info=True,
         )
-        raise
+        return {"__error__": str(exc), "__step__": step_name}
 
 
 def _run_scatter(
@@ -341,7 +371,7 @@ def finalize_scatter(
     process_id: str,
     job_id: str,
     payload_key: str,
-) -> dict:
+) -> dict | None:
     """
     Chord callback for ``BaseScatterProcess``.
 
@@ -350,6 +380,29 @@ def finalize_scatter(
     and updates the job status.
     """
     process = cast(BaseScatterProcess, get_process_registry().get_process(process_id))
+
+    errors = [r for r in step_results if isinstance(r, dict) and "__error__" in r]
+    if errors:
+        first = errors[0]
+        error_msg = (
+            f"Step '{first['__step__']}' failed: {first['__error__']}"
+            if "__step__" in first
+            else first["__error__"]
+        )
+        update_job_status(job_id, 0, error_msg, JobStatusCode.FAILED)
+        _cleanup_scatter_roster(job_id)
+        temp_result_cache.delete(payload_key)
+        logger.error(
+            "Scatter chord failed for process {} (job {}): {}/{} step(s) failed. "
+            "First error: {}",
+            process_id,
+            job_id,
+            len(errors),
+            len(step_results),
+            error_msg,
+        )
+        return None
+
     try:
         named_results: dict[str, dict] = {}
         for step_name, result_ref in zip(step_names, step_results):
