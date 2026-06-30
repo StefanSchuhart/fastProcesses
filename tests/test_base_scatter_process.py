@@ -30,6 +30,7 @@ from fastprocesses.core.models import (
     ProcessOutputTransmission,
     Schema,
 )
+from fastprocesses.core.output_protocol import BaseProcessResult
 from fastprocesses.worker.chord_tasks import (
     _run_scatter,
     execute_scatter_step,
@@ -53,7 +54,7 @@ class TemperatureResult(BaseModel):
     celsius: float
 
 
-class GeoEnrichResult(BaseModel):
+class GeoEnrichResult(BaseProcessResult):
     elevation_m: float
     land_use: str
     temperature_c: float
@@ -108,7 +109,10 @@ class GeoEnrichProcess(BaseScatterProcess):
     def get_temperature(self, exec_body: dict) -> TemperatureResult:
         return TemperatureResult(celsius=12.3)
 
-    def merge_results(self, results: dict[str, dict], exec_body: dict) -> GeoEnrichResult:
+    def merge_results(
+            self, results: dict[str, dict], exec_body: dict,
+            job_progress_callback=None
+        ) -> GeoEnrichResult:
         return GeoEnrichResult(
             elevation_m=results["get_elevation"]["value_m"],
             land_use=results["get_land_use"]["category"],
@@ -205,7 +209,10 @@ def test_no_parallel_steps_raises(process: BaseScatterProcess):
     class EmptyScatter(BaseScatterProcess):
         process_description = _DESCRIPTION
 
-        def merge_results(self, results):
+        def merge_results(
+                self, results, exec_body,
+                job_progress_callback=None
+            ):
             return GeoEnrichResult(elevation_m=0, land_use="", temperature_c=0)
 
     with pytest.raises(NotImplementedError, match="no @parallel_step"):
