@@ -1,6 +1,7 @@
 import json
 
 from fastprocesses.core.base_process import BaseProcess
+from fastprocesses.core.config import OGCProcessesSettings
 from fastprocesses.core.exceptions import (
     InputValidationError,
     ProcessClassNotFoundError,
@@ -49,17 +50,26 @@ def _run_pipeline(
     Returns the (possibly modified) data dict after remote input resolution.
     """
     # Step 1: validate wire-format inputs against the process description schema
-    update_job_status(
-        job_id, 0,
-        "Pre-process step 1: Validating inputs against process description.",
-        JobStatusCode.RUNNING
-    )
-    try:
-        process.validate_inputs(data["inputs"])
-    except ValueError as e:
-        logger.error(f"Input validation failed for process {process_id}: {e}")
-        update_job_status(job_id, 0, str(e), JobStatusCode.FAILED)
-        raise InputValidationError(process_id, repr(e))
+    settings = OGCProcessesSettings()
+    if settings.FP_SKIP_INPUT_VALIDATION:
+        logger.warning(
+            "FP_SKIP_INPUT_VALIDATION is enabled — skipping input validation "
+            "for process {} (job {}). Do not use this in production.",
+            process_id,
+            job_id,
+        )
+    else:
+        update_job_status(
+            job_id, 0,
+            "Pre-process step 1: Validating inputs against process description.",
+            JobStatusCode.RUNNING
+        )
+        try:
+            process.validate_inputs(data["inputs"])
+        except ValueError as e:
+            logger.error(f"Input validation failed for process {process_id}: {e}")
+            update_job_status(job_id, 0, str(e), JobStatusCode.FAILED)
+            raise InputValidationError(process_id, repr(e))
 
     # Step 2: resolve remote inputs (URI strings → downloaded data)
     update_job_status(

@@ -128,6 +128,13 @@ class OGCProcessesSettings(BaseSettings):
         default=10,
         description="Timeout in seconds for synchronous execution waiting for result."
     )
+    FP_SKIP_INPUT_VALIDATION: bool = Field(
+        default=False,
+        description=(
+            "Skip JSON-Schema input validation on the worker. "
+            "Intended for debugging only — never enable in production."
+        ),
+    )
     FP_LOG_LEVEL: str = Field(
         default="INFO",
         description=(
