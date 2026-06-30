@@ -1,10 +1,12 @@
 from datetime import datetime, timezone
-
+import json
 from fastprocesses.common import job_status_cache
 from fastprocesses.core.logging import logger
 from fastprocesses.core.models import JobStatusCode, JobStatusInfo, Link
 
 _SUBTASK_PROGRESS_KEY = "fp:subtask_progress"
+_SCATTER_ALL_KEY = "fp:scatter_all"
+_SCATTER_DONE_KEY = "fp:scatter_done"
 
 
 def update_job_status(
@@ -143,4 +145,83 @@ def _cleanup_progress_counter(job_id: str) -> None:
     except Exception as exc:  # pragma: no cover
         logger.warning(
             "Could not clean up progress counter for job {}: {!r}", job_id, exc
+        )
+
+
+def _init_scatter_roster(job_id: str, step_names: list[str]) -> None:
+    """
+    Stores the full list of scatter step names for *job_id* so that any
+    subtask can later read it back to build the step-status message.
+    Called once by ``_run_scatter`` before the chord is dispatched.
+    """
+    try:
+        redis = job_status_cache.redis_connection
+        all_key = f"{_SCATTER_ALL_KEY}:{job_id}"
+        
+        redis._execute_redis_command("set", all_key, json.dumps(step_names))
+        redis._execute_redis_command("expire", all_key, 86400)
+    except Exception as exc:  # pragma: no cover
+        logger.warning(
+            "Could not initialise scatter roster for job {}: {!r}", job_id, exc
+        )
+
+
+def _record_scatter_step_done(job_id: str, step_name: str, total: int) -> None:
+    """
+    Marks *step_name* as completed for *job_id* and updates the job status
+    message with a human-readable roster:
+
+        Steps: vulnerability_pipeline ✓, exposure_pipeline ✓,
+               hazard_wb_pipeline …, hazard_ma_pipeline … (2/4 done)
+
+    Uses an atomic INCR for the progress percentage (same 0-90 % band as
+    ``_increment_and_report_progress``) and a Redis set for the done-step
+    roster so concurrent workers never race.
+
+    All exceptions are swallowed so a Redis hiccup never causes a subtask
+    to fail.
+    """
+    import json as json
+    counter_key = f"{_SUBTASK_PROGRESS_KEY}:{job_id}"
+    done_key = f"{_SCATTER_DONE_KEY}:{job_id}"
+    all_key = f"{_SCATTER_ALL_KEY}:{job_id}"
+    try:
+        redis = job_status_cache.redis_connection
+        completed = redis._execute_redis_command("incr", counter_key)
+        if completed == 1:
+            redis._execute_redis_command("expire", counter_key, 86400)
+        redis._execute_redis_command("sadd", done_key, step_name)
+        redis._execute_redis_command("expire", done_key, 86400)
+
+        # Read back all_steps and done_steps to build the message.
+        raw_all = redis._execute_redis_command("get", all_key)
+        all_steps: list[str] = json.loads(raw_all) if raw_all else []
+        done_raw = redis._execute_redis_command("smembers", done_key)
+        done_steps: set[str] = {
+            m.decode() if isinstance(m, bytes) else m for m in (done_raw or [])
+        }
+
+        parts = [
+            f"{s} \u2713" if s in done_steps else f"{s} \u2026"
+            for s in (all_steps or [step_name])
+        ]
+        message = ", ".join(parts) + f" ({len(done_steps)}/{total} done)"
+
+        progress = min(int(completed / total * 90), 90)
+        update_job_status(job_id, progress, message, JobStatusCode.RUNNING)
+    except Exception as exc:  # pragma: no cover
+        logger.warning(
+            "Could not record scatter step progress for job {}: {!r}", job_id, exc
+        )
+
+
+def _cleanup_scatter_roster(job_id: str) -> None:
+    """Deletes scatter roster keys for *job_id* after the job completes."""
+    try:
+        redis = job_status_cache.redis_connection
+        redis._execute_redis_command("delete", f"{_SCATTER_ALL_KEY}:{job_id}")
+        redis._execute_redis_command("delete", f"{_SCATTER_DONE_KEY}:{job_id}")
+    except Exception as exc:  # pragma: no cover
+        logger.warning(
+            "Could not clean up scatter roster for job {}: {!r}", job_id, exc
         )

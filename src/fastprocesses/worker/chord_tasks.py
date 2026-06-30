@@ -17,7 +17,10 @@ from fastprocesses.core.models import CalculationTask, JobStatusCode
 from fastprocesses.processes.process_registry import get_process_registry
 from fastprocesses.worker.job_status import (
     _cleanup_progress_counter,
+    _cleanup_scatter_roster,
     _increment_and_report_progress,
+    _init_scatter_roster,
+    _record_scatter_step_done,
     update_job_status,
 )
 
@@ -270,7 +273,7 @@ def execute_scatter_step(
         result = jsonable_encoder(partial)
         rkey = _result_key(job_id, step_name)
         temp_result_cache.put(key=rkey, value=result)
-        _increment_and_report_progress(job_id, total)
+        _record_scatter_step_done(job_id, step_name, total)
         return {"__claim_check__": rkey}
     except Exception as exc:
         update_job_status(
@@ -310,6 +313,7 @@ def _run_scatter(
         f"{total} step(s): {step_names}."
     )
 
+    _init_scatter_roster(job_id, step_names)
     pkey = _payload_key(job_id)
     temp_result_cache.put(
         key=pkey,
@@ -357,7 +361,12 @@ def finalize_scatter(
 
         payload = temp_result_cache.get(payload_key)
         temp_result_cache.delete(payload_key)
-        exec_body: dict = payload["original_input"] if payload else {}
+        # step_input is the resolved data (after resolve_remote_inputs + pipeline).
+        # original_input is the wire-format exec_body (may contain URL strings)
+        # and is used only for deriving the stable cache key — never for business
+        # logic, because the resolved content may change between cache fills.
+        exec_body: dict = payload["step_input"] if payload else {}
+        original_input: dict = payload.get("original_input", exec_body) if payload else {}
 
         update_job_status(
             job_id, 95, "Merging scatter results.", JobStatusCode.RUNNING
@@ -366,7 +375,7 @@ def finalize_scatter(
         merged = merge_result.model_dump(mode="json")
 
         try:
-            calculation_task = CalculationTask(**exec_body)
+            calculation_task = CalculationTask(**original_input)
             temp_result_cache.put(key=calculation_task.celery_key, value=merged)
             # Also store under job_id so get_job_result can retrieve it.
             temp_result_cache.put(key=job_id, value=merged)
@@ -382,6 +391,7 @@ def finalize_scatter(
             job_id, 100, "Process completed.", JobStatusCode.SUCCESSFUL
         )
         _cleanup_progress_counter(job_id)
+        _cleanup_scatter_roster(job_id)
         logger.info(
             f"Scatter process {process_id} (job {job_id}) completed successfully."
         )
