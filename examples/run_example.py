@@ -417,7 +417,7 @@ class BatchUpperProcess(BaseParallelProcess):
 
     # --- 3. Stitch the partial results back together ---
 
-    def merge_results(self, results: list[dict]) -> WordBatch:
+    def merge_results(self, results: list[dict], exec_body: dict, job_progress_callback=None) -> WordBatch:
         """Flatten the per-chunk results into one list, preserving order."""
         return WordBatch(words=[w for chunk in results for w in chunk["words"]])
 

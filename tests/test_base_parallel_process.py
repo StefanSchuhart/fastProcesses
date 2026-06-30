@@ -25,6 +25,7 @@ from fastprocesses.core.models import (
     ProcessOutputTransmission,
     Schema,
 )
+from fastprocesses.core.output_protocol import BaseProcessResult
 from fastprocesses.worker.chord_tasks import (
     _run_parallel,
     execute_parallel_item,
@@ -36,7 +37,7 @@ from fastprocesses.worker.chord_tasks import (
 # ---------------------------------------------------------------------------
 
 
-class WordBatch(BaseModel):
+class WordBatch(BaseProcessResult):
     words: list[str]
 
 
@@ -88,7 +89,10 @@ class BatchUpperProcess(BaseParallelProcess):
     def execute_single(self, item: dict, job_progress_callback=None) -> WordBatch:
         return WordBatch(words=[w.upper() for w in item["inputs"]["words"]])
 
-    def merge_results(self, results: list[dict]) -> WordBatch:
+    def merge_results(
+            self, results: list[dict], exec_body: dict,
+            job_progress_callback=None
+        ) -> WordBatch:
         return WordBatch(words=[w for r in results for w in r["words"]])
 
 
@@ -153,7 +157,7 @@ def test_execute_single_uppercases_one_chunk(process):
 def test_merge_combines_all_partial_results(process):
     """merge_results receives dicts (post-serialisation) and returns one model."""
     partials = [{"words": ["A", "B"]}, {"words": ["C", "D"]}, {"words": ["E"]}]
-    merged = process.merge_results(partials)
+    merged = process.merge_results(partials, exec_body={})
 
     assert isinstance(merged, WordBatch)
     assert merged.words == ["A", "B", "C", "D", "E"]

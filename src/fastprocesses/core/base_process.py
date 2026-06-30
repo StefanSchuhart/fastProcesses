@@ -470,6 +470,7 @@ class BaseParallelProcess(BaseProcess, ABC):
     @abstractmethod
     def merge_results(
         self, results: List[Dict[str, Any]],
+        exec_body: Dict[str, Any],
         job_progress_callback: JobProgressCallback | None = None,
     ) -> BaseProcessResult:
         """
@@ -479,6 +480,9 @@ class BaseParallelProcess(BaseProcess, ABC):
             results: List of partial results.  Each element is the ``dict``
                 produced by serialising the ``BaseModel`` returned from
                 ``execute_single`` (i.e. the output of ``model.model_dump()``).
+            exec_body: The original ``exec_body`` dict passed to ``execute``.
+                Gives the merge step access to the raw inputs without requiring
+                them to be smuggled through partial results.
 
         Returns:
             A ``BaseProcessResult`` instance holding the final output values.
@@ -516,7 +520,7 @@ class BaseParallelProcess(BaseProcess, ABC):
                         return await p
                     partial = asyncio.run(_await())
             raw_results.append(partial.model_dump(exclude_none=True))
-        return self.merge_results(raw_results)
+        return self.merge_results(raw_results, exec_body)
 
 
 # ---------------------------------------------------------------------------

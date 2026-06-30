@@ -185,7 +185,8 @@ def finalize_parallel(
         update_job_status(
             job_id, 95, "Merging parallel results.", JobStatusCode.RUNNING
         )
-        merge_result = process.merge_results(actual_results)
+        exec_body: dict = original_input or {}
+        merge_result = process.merge_results(actual_results, exec_body)
         merged = merge_result.model_dump(mode="json")
 
         try:
