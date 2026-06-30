@@ -383,14 +383,18 @@ def get_router(
                 process = process_manager.process_registry.get_process(process_id)
                 result_class = _get_result_class(process)
                 if result_class is not None and isinstance(result, dict):
-                    # Retrieve the original outputs + response mode from the job record.
-                    # These are stored in the CalculationTask that was submitted with the job.
-                    # For now fall back to returning all outputs in document mode when
-                    # the job record doesn't carry per-request format preferences.
+                    # Retrieve the original requested outputs and response mode
+                    # that were stored when the job was submitted.  Falls back
+                    # to {} (all outputs, document mode) for legacy job records.
+                    job_request = process_manager.job_status_cache.get(
+                        f"job_request:{job_id}"
+                    )
+                    requested_outputs = (job_request or {}).get("outputs") or {}
+                    response_mode = (job_request or {}).get("response") or "document"
                     return serialize_result(
                         result_class.model_validate(result),
-                        {},  # empty → resolve all described outputs
-                        "document",
+                        requested_outputs,
+                        response_mode,
                         process.process_description,
                     )
             return JSONResponse(content=result)

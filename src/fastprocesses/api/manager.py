@@ -508,7 +508,17 @@ class ProcessManager:
             # Avoids jsonable_encoder + model_dump + json.dumps — up to 4 full
             # Python-level passes through the input data — before returning 201.
             # Cache lookup is handled by the worker (see find_result_in_cache).
-            return AsyncExecutionStrategy(self).execute_raw(process_id, raw_body)
+            response = AsyncExecutionStrategy(self).execute_raw(process_id, raw_body)
+            if isinstance(response, ProcessExecResponse):
+                # Persist the original requested outputs and response mode so
+                # GET /jobs/{job_id}/results can honour per-request format
+                # preferences rather than always returning every output.
+                request_meta = {
+                    "outputs": data.model_dump(mode="json", include={"outputs"})["outputs"],
+                    "response": data.response,
+                }
+                self.job_status_cache.put(f"job_request:{response.jobID}", request_meta)
+            return response
 
         # Sync path: build CalculationTask for cache key and result retrieval.
         # Sync execution is intended for fast/small jobs where this overhead is acceptable.
