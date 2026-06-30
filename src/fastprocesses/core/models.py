@@ -231,10 +231,7 @@ def deserialize_json(value: Any) -> Any:
 
 class CalculationTask(BaseModel):
     inputs: Annotated[Dict[str, Any], AfterValidator(deserialize_json)]
-    outputs: (
-        Annotated[dict[str, OutputControl], AfterValidator(deserialize_json)]
-        | None
-    ) = None
+    outputs: dict[str, OutputControl] | None = None
     response: ResponseType = ResponseType.RAW
 
     def _hash_dict(self):
