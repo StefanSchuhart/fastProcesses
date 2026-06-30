@@ -259,8 +259,8 @@ def test_execute_scatter_step_task(eager_celery, process):
     assert store["chord:result:test-job:get_elevation"] == {"value_m": 342.5}
 
 
-def test_execute_scatter_step_unknown_step_raises(eager_celery, process):
-    """Requesting a non-existent step name raises ValueError."""
+def test_execute_scatter_step_unknown_step_returns_error_sentinel(eager_celery, process):
+    """Requesting a non-existent step name returns an error sentinel (does not raise)."""
     store = {
         "chord:payload:test-job": {
             "step_input": EXEC_BODY,
@@ -281,10 +281,12 @@ def test_execute_scatter_step_unknown_step_raises(eager_celery, process):
         )
         mock_cache.get.side_effect = lambda key: store.get(key)
         mock_registry.return_value.get_process.return_value = process
-        with pytest.raises(ValueError, match="not found"):
-            execute_scatter_step.delay(
-                "geo_enrich", "test-job", 1, "nonexistent_step", "chord:payload:test-job"
-            ).get()
+        result = execute_scatter_step.delay(
+            "geo_enrich", "test-job", 1, "nonexistent_step", "chord:payload:test-job"
+        ).get()
+        assert "__error__" in result
+        assert "nonexistent_step" in result["__error__"]
+        assert result["__step__"] == "nonexistent_step"
 
 
 def test_run_scatter_fans_out_and_merges(
