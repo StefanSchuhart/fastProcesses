@@ -182,6 +182,51 @@ class TestOutputSchemaResolver:
 
         assert resolved["features"].media_type == "application/geo+json"
 
+    def test_default_json_for_plain_array_schema(self):
+        """A plain array schema with no media hints defaults to application/json."""
+        output = ProcessOutput(
+            title="Array output",
+            description="",
+            scheme=Schema(type="array", items={"type": "integer"}),
+        )
+        description = _make_description({"array_output": output})
+        resolver = OutputSchemaResolver(description)
+
+        resolved = resolver.resolve({"array_output": {}})
+
+        assert resolved["array_output"].media_type == "application/json"
+        assert resolved["array_output"].is_binary is False
+
+    def test_default_json_for_plain_object_schema(self):
+        """A plain object schema with no media hints defaults to application/json."""
+        output = ProcessOutput(
+            title="Object output",
+            description="",
+            scheme=Schema(type="object", properties={"x": {"type": "number"}}),
+        )
+        description = _make_description({"object_output": output})
+        resolver = OutputSchemaResolver(description)
+
+        resolved = resolver.resolve({"object_output": {}})
+
+        assert resolved["object_output"].media_type == "application/json"
+        assert resolved["object_output"].is_binary is False
+
+    def test_default_json_for_plain_number_schema(self):
+        """A plain number schema with no media hints defaults to application/json."""
+        output = ProcessOutput(
+            title="Number output",
+            description="",
+            scheme=Schema(type="number"),
+        )
+        description = _make_description({"number_output": output})
+        resolver = OutputSchemaResolver(description)
+
+        resolved = resolver.resolve({"number_output": {}})
+
+        assert resolved["number_output"].media_type == "application/json"
+        assert resolved["number_output"].is_binary is False
+
 
 # ---------------------------------------------------------------------------
 # Minimal BaseProcessResult subclasses used by serialization tests
