@@ -116,6 +116,7 @@ class AsyncExecutionStrategy(ExecutionStrategy):
                 "processID": process_id,
                 "created": datetime.now(timezone.utc),
                 "progress": 0,
+                "message": "Waiting for a worker to pick up the task.",
                 "links": [
                     Link.model_validate(
                         {
@@ -183,6 +184,7 @@ class AsyncExecutionStrategy(ExecutionStrategy):
                 "processID": process_id,
                 "created": datetime.now(timezone.utc),
                 "progress": 0,
+                "message": "Waiting for a worker to pick up the task.",
                 "links": [
                     Link.model_validate(
                         {

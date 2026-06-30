@@ -89,6 +89,12 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
         process_id,
         job_id,
     )
+    update_job_status(
+        job_id,
+        0,
+        "Worker started, task picked up.",
+        process_id=process_id,
+    )
 
     # Check cache before running the pipeline — avoids re-execution for
     # identical inputs (especially important for parallel/scatter processes
