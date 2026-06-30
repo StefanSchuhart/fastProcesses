@@ -87,10 +87,20 @@ def _default_media_type(schema: Schema) -> str | None:
             return preferred_media_type
 
     # None of the preferred types matched — return whatever the schema advertises
-    return next(
+    advertised_media_type = next(
         (media_type for media_type in candidate_media_types if media_type is not None),
         None,
     )
+    if advertised_media_type is not None:
+        return advertised_media_type
+
+    # OGC examples frequently describe JSON-native outputs (array/object/number
+    # etc.) without explicit contentMediaType/format hints. Treat these as
+    # application/json by default so resolver behavior matches spec examples.
+    if schema.oneOf is None:
+        return "application/json"
+
+    return None
 
 
 def _is_binary(schema: Schema) -> bool:
