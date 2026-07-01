@@ -37,6 +37,35 @@ def _load_process(process_id: str, job_id: str) -> BaseProcess:
         raise e
     except ProcessClassNotFoundError:
         raise
+    except Exception as e:
+        # Covers pydoc.ErrorDuringImport, ImportError, FileNotFoundError, and
+        # any other unexpected error raised while importing the process module
+        # (e.g. a missing data file opened at import time).  These are
+        # server-side errors, not caused by the user's inputs.
+        logger.error(
+            "Failed to load process '{}' for job {}: {}",
+            process_id,
+            job_id,
+            e,
+            exc_info=True,
+        )
+        update_job_status(
+            job_id,
+            0,
+            (
+                "Worker error: the process could not be loaded. "
+                "This is not caused by your input — please contact the administrator."
+            ),
+            JobStatusCode.FAILED,
+        )
+        # Re-raise as a plain RuntimeError so Celery can pickle and store the
+        # failure in the result backend.  The original exception (e.g.
+        # pydoc.ErrorDuringImport) is not pickleable and would crash the
+        # broker serialisation step, producing a misleading
+        # UnpickleableExceptionWrapper instead of a clear FAILED task entry.
+        raise RuntimeError(
+            f"Process '{process_id}' could not be loaded: {type(e).__name__}: {e}"
+        ) from None
 
 
 def _run_pipeline(
