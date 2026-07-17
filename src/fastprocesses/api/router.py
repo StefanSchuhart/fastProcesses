@@ -145,6 +145,7 @@ def get_router(
                 "http://www.opengis.net/spec/ogcapi-processes-1/1.0/conf/core",
                 "http://www.opengis.net/spec/ogcapi-processes-1/1.0/conf/json",
                 "http://www.opengis.net/spec/ogcapi-processes-1/1.0/conf/job-list",
+                "http://www.opengis.net/spec/ogcapi-processes-1/1.0/conf/ogc-process-description"
             ]
         )
 
