@@ -176,18 +176,81 @@ CSV output:
                },
                "response": "raw"
              }'
+
+─────────────────────────────────────────────────────────────────────────────
+7.  transmissionMode=reference — publish outputs as links
+─────────────────────────────────────────────────────────────────────────────
+
+Fastprocesses now supports reference output delivery.  To enable it,
+configure ProcessManager with an OutputReferencePublisher implementation.
+
+Minimal setup (local filesystem publisher):
+
+        from fastprocesses import LocalFileReferencePublisher
+        from fastprocesses.api.server import OGCProcessesAPI
+
+        api = OGCProcessesAPI(...)
+        api.process_manager.output_reference_publisher = LocalFileReferencePublisher(
+                base_directory="./example-results",
+                base_href="/results",
+        )
+        app = api.get_app()
+
+Request document response with a reference output:
+
+        curl -s -X POST http://localhost:8000/processes/word_frequency_process/execution \
+                 -H "Content-Type: application/json" \
+                 -H "Prefer: respond-sync" \
+                 -d '{
+                             "inputs": {"text": "the cat sat on the mat the cat"},
+                             "outputs": {
+                                 "frequencies": {
+                                     "transmissionMode": "reference"
+                                 }
+                             },
+                             "response": "document"
+                         }' | python3 -m json.tool
+
+Expected response excerpt:
+
+        {
+            "frequencies": {
+                "href": "/results/frequencies-<id>.json",
+                "type": "application/json"
+            }
+        }
+
+Raw + reference (single output) returns 204 with Link header:
+
+        curl -i -X POST http://localhost:8000/processes/word_frequency_process/execution \
+                 -H "Content-Type: application/json" \
+                 -H "Prefer: respond-sync" \
+                 -d '{
+                             "inputs": {"text": "the cat sat on the mat the cat"},
+                             "outputs": {
+                                 "frequencies": {
+                                     "transmissionMode": "reference"
+                                 }
+                             },
+                             "response": "raw"
+                         }'
+
+        # HTTP/1.1 204 No Content
+        # Link: </results/frequencies-<id>.json>; rel="alternate"; type="application/json"
 """
 import asyncio
 import csv
 import io
 import json
 import logging
+from pathlib import Path
 from typing import Any, Callable, ClassVar
 
 import uvicorn
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from fastprocesses import BaseProcessResult
+from fastprocesses import BaseProcessResult, LocalFileReferencePublisher
 from fastprocesses.api.server import OGCProcessesAPI
 from fastprocesses.core.base_process import (
     BaseParallelProcess,
@@ -872,7 +935,7 @@ class ScatterTextSummaryProcess(BaseScatterProcess):
 
 
 # Create the FastAPI app
-app = OGCProcessesAPI(
+api = OGCProcessesAPI(
     contact={
         "name": "LGV Hamburg",
         "url": "https://example.com",
@@ -883,7 +946,18 @@ app = OGCProcessesAPI(
         "url": "https://www.apache.org/licenses/LICENSE-2.0",
     },
     terms_of_service="https://example.com/terms",
-).get_app()
+)
+
+# Enable transmissionMode=reference using a local file publisher.
+results_dir = Path("example-results")
+results_dir.mkdir(parents=True, exist_ok=True)
+api.process_manager.output_reference_publisher = LocalFileReferencePublisher(
+    base_directory=results_dir,
+    base_href="/results",
+)
+
+app = api.get_app()
+app.mount("/results", StaticFiles(directory=str(results_dir)), name="results")
 
 if __name__ == "__main__":
     uvicorn.run(
