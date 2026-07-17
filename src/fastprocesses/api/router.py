@@ -256,7 +256,8 @@ def get_router(
 
             # Async or Timeout: return job info
             response.status_code = status.HTTP_201_CREATED
-            response.headers["Location"] = f"/jobs/{result.jobID}"
+            base_url = str(http_request.base_url).rstrip("/")
+            response.headers["Location"] = f"{base_url}/jobs/{result.jobID}"
             return result
 
         except JobFailedError as e:
