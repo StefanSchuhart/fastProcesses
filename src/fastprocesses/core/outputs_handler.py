@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse, Response
 
 from fastprocesses.core.models import ProcessDescription
 from fastprocesses.core.output_protocol import BaseProcessResult
+from fastprocesses.core.output_reference_publisher import OutputReferencePublisher
 from fastprocesses.core.output_schema_resolver import (
     OutputSchemaResolver,
     ResolvedOutputFormat,
@@ -19,6 +20,7 @@ def serialize_result(
     requested_outputs: dict[str, Any],
     response_mode: str,
     process_description: ProcessDescription,
+    reference_publisher: OutputReferencePublisher | None = None,
 ) -> Response:
     """Serialize a ``BaseProcessResult`` to an HTTP response at the API boundary.
 
@@ -39,13 +41,14 @@ def serialize_result(
     resolved = resolver.resolve(requested_outputs or {})
 
     if response_mode == "raw":
-        return _build_raw_response(result, resolved)
-    return _build_document_response(result, resolved)
+        return _build_raw_response(result, resolved, reference_publisher)
+    return _build_document_response(result, resolved, reference_publisher)
 
 
 def _build_raw_response(
     result: BaseProcessResult,
     resolved: dict[str, ResolvedOutputFormat],
+    reference_publisher: OutputReferencePublisher | None,
 ) -> Response:
     if len(resolved) != 1:
         raise ValueError(
@@ -54,12 +57,31 @@ def _build_raw_response(
         )
     output_id, output_format = next(iter(resolved.items()))
     payload = result.serialize(output_id, output_format.media_type)
+
+    if output_format.transmission_mode == "reference":
+        if reference_publisher is None:
+            raise ValueError(
+                "transmissionMode='reference' requested, but no "
+                "reference_publisher is configured."
+            )
+        href = reference_publisher.publish(
+            payload,
+            output_id=output_id,
+            media_type=output_format.media_type,
+        )
+        response = Response(status_code=204)
+        response.headers["Link"] = (
+            f'<{href}>; rel="alternate"; type="{output_format.media_type}"'
+        )
+        return response
+
     return Response(content=payload, media_type=output_format.media_type)
 
 
 def _build_document_response(
     result: BaseProcessResult,
     resolved: dict[str, ResolvedOutputFormat],
+    reference_publisher: OutputReferencePublisher | None,
 ) -> JSONResponse:
     """Return a JSON document with OGC-spec qualified value wrappers.
 
@@ -78,6 +100,23 @@ def _build_document_response(
 
     for output_id, output_format in resolved.items():
         payload = result.serialize(output_id, output_format.media_type)
+
+        if output_format.transmission_mode == "reference":
+            if reference_publisher is None:
+                raise ValueError(
+                    "transmissionMode='reference' requested, but no "
+                    "reference_publisher is configured."
+                )
+            href = reference_publisher.publish(
+                payload,
+                output_id=output_id,
+                media_type=output_format.media_type,
+            )
+            document[output_id] = {
+                "href": href,
+                "type": output_format.media_type,
+            }
+            continue
 
         if output_format.is_binary:
             document[output_id] = {

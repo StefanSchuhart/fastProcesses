@@ -37,6 +37,7 @@ from fastprocesses.core.models import (
     ProcessExecRequestBody,
     ProcessExecResponse,
 )
+from fastprocesses.core.output_reference_publisher import OutputReferencePublisher
 from fastprocesses.processes.process_registry import get_process_registry
 
 
@@ -355,12 +356,16 @@ class SyncExecutionStrategy(ExecutionStrategy):
 class ProcessManager:
     """Manages processes, including execution, status checking, and job management."""
 
-    def __init__(self):
+    def __init__(
+        self,
+        output_reference_publisher: OutputReferencePublisher | None = None,
+    ):
         """Initializes the ProcessManager with Celery app and process registry."""
         self.celery_app = celery_app
         self.process_registry = get_process_registry()
         self.cache = temp_result_cache
         self.job_status_cache = job_status_cache
+        self.output_reference_publisher = output_reference_publisher
 
     def get_worker_status(self) -> Dict[str, Any]:
         """Return basic Celery worker status derived from broker inspect.

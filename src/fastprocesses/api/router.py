@@ -250,6 +250,7 @@ def get_router(
                         (exec_body.outputs or {}),
                         exec_body.response or "raw",
                         process.process_description,
+                        process_manager.output_reference_publisher,
                     )
                 return JSONResponse(content=result)
 
@@ -396,6 +397,7 @@ def get_router(
                         requested_outputs,
                         response_mode,
                         process.process_description,
+                        process_manager.output_reference_publisher,
                     )
             return JSONResponse(content=result)
 
