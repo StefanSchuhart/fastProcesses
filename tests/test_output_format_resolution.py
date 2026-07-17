@@ -282,6 +282,14 @@ class _BinaryResult(BaseProcessResult):
 
 
 class TestSerializeResult:
+    class _StubPublisher:
+        def __init__(self):
+            self.calls: list[tuple[bytes, str, str]] = []
+
+        def publish(self, payload: bytes, *, output_id: str, media_type: str) -> str:
+            self.calls.append((payload, output_id, media_type))
+            return f"https://example.test/results/{output_id}"
+
     def test_raw_response_single_json_output(self):
         """response='raw' with a JSON output returns correct Content-Type and body."""
         description = _make_description({"report": _json_output()})
@@ -360,6 +368,60 @@ class TestSerializeResult:
         body = json.loads(response.body)
         assert body["features"]["value"] == fc
         assert body["features"]["mediaType"] == "application/geo+json"
+
+    def test_document_response_reference_mode_returns_href(self):
+        """document + transmissionMode=reference returns href/type metadata."""
+        description = _make_description({"report": _json_output()})
+        result = _JsonResult(report={"status": "ok"})
+        publisher = self._StubPublisher()
+
+        response = serialize_result(
+            result,
+            {"report": {"transmissionMode": "reference"}},
+            "document",
+            description,
+            reference_publisher=publisher,
+        )
+
+        body = json.loads(response.body)
+        assert body["report"] == {
+            "href": "https://example.test/results/report",
+            "type": "application/json",
+        }
+        assert len(publisher.calls) == 1
+
+    def test_raw_response_reference_mode_returns_204_with_link_header(self):
+        """raw + transmissionMode=reference returns 204 and Link header."""
+        description = _make_description({"report": _json_output()})
+        result = _JsonResult(report={"status": "ok"})
+        publisher = self._StubPublisher()
+
+        response = serialize_result(
+            result,
+            {"report": {"transmissionMode": "reference"}},
+            "raw",
+            description,
+            reference_publisher=publisher,
+        )
+
+        assert response.status_code == 204
+        link_header = response.headers["Link"]
+        assert "https://example.test/results/report" in link_header
+        assert 'rel="alternate"' in link_header
+        assert 'type="application/json"' in link_header
+
+    def test_reference_mode_without_publisher_raises(self):
+        """reference mode requires a configured publisher."""
+        description = _make_description({"report": _json_output()})
+        result = _JsonResult(report={"status": "ok"})
+
+        with pytest.raises(ValueError, match="reference_publisher"):
+            serialize_result(
+                result,
+                {"report": {"transmissionMode": "reference"}},
+                "document",
+                description,
+            )
 
     def test_unknown_media_type_raises(self):
         """Requesting a media type with no registered serializer raises ValueError."""
