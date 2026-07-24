@@ -18,10 +18,7 @@ from fastprocesses.core.models import (
     Schema,
 )
 from fastprocesses.core.output_protocol import BaseProcessResult
-from fastprocesses.core.output_schema_resolver import (
-    OutputSchemaResolver,
-    ResolvedOutputFormat,
-)
+from fastprocesses.core.output_schema_resolver import OutputSchemaResolver
 from fastprocesses.core.outputs_handler import serialize_result
 
 # ---------------------------------------------------------------------------
@@ -107,7 +104,7 @@ class TestOutputSchemaResolver:
         assert resolved["features"].is_binary is True
 
     def test_default_format_uses_priority_order(self):
-        """When no format is requested, the highest-priority advertised type is chosen."""
+        """When no format is requested, the highest-priority advertised type is used."""
         description = _make_description({"features": _multi_format_output()})
         resolver = OutputSchemaResolver(description)
 
@@ -148,7 +145,7 @@ class TestOutputSchemaResolver:
             resolver.resolve({"nonexistent": {}})
 
     def test_transmission_mode_forwarded(self):
-        """transmissionMode from the request spec is preserved in the resolved format."""
+        """transmissionMode from the request is preserved in the resolved format."""
         description = _make_description({"features": _geojson_output()})
         resolver = OutputSchemaResolver(description)
 
@@ -168,7 +165,7 @@ class TestOutputSchemaResolver:
         assert resolved["features"].transmission_mode == "value"
 
     def test_ogc_format_hint_resolved_via_allof(self):
-        """OGC format hints nested inside allOf are resolved to the correct media type."""
+        """OGC format hints nested inside allOf are resolved to the correct type."""
         schema_with_allof = Schema(
             allOf=[Schema(format="geojson-feature-collection")]
         )
@@ -187,7 +184,7 @@ class TestOutputSchemaResolver:
         output = ProcessOutput(
             title="Array output",
             description="",
-            scheme=Schema(type="array", items={"type": "integer"}),
+            scheme=Schema(type="array", items=Schema(type="integer")),
         )
         description = _make_description({"array_output": output})
         resolver = OutputSchemaResolver(description)
@@ -202,7 +199,7 @@ class TestOutputSchemaResolver:
         output = ProcessOutput(
             title="Object output",
             description="",
-            scheme=Schema(type="object", properties={"x": {"type": "number"}}),
+            scheme=Schema(type="object", properties={"x": Schema(type="number")}),
         )
         description = _make_description({"object_output": output})
         resolver = OutputSchemaResolver(description)
@@ -299,10 +296,10 @@ class TestSerializeResult:
 
         assert response.status_code == 200
         assert response.media_type == "application/json"
-        assert json.loads(response.body) == {"status": "ok"}
+        assert json.loads(bytes(response.body)) == {"status": "ok"}
 
     def test_raw_response_multiple_outputs_raises(self):
-        """response='raw' with more than one output raises ValueError."""
+        """response='raw' with multiple outputs returns multipart/related."""
         description = _make_description(
             {"features": _geojson_output(), "report": _json_output()}
         )
@@ -318,8 +315,14 @@ class TestSerializeResult:
             def _r(self) -> bytes: return b"{}"
 
         result = _MultiResult(features={}, report={})
-        with pytest.raises(ValueError, match="exactly one output"):
-            serialize_result(result, {}, "raw", description)
+        response = serialize_result(result, {}, "raw", description)
+
+        assert response.status_code == 200
+        assert (response.media_type or "").startswith("multipart/related")
+        body = bytes(response.body)
+        assert b"Content-ID: <features>" in body
+        assert b"Content-ID: <report>" in body
+        assert body.count(b"Content-Type:") == 2
 
     def test_document_response_json_output_qualified_value(self):
         """response='document' wraps JSON output as a qualified value with mediaType."""
@@ -328,7 +331,7 @@ class TestSerializeResult:
 
         response = serialize_result(result, {"report": {}}, "document", description)
 
-        body = json.loads(response.body)
+        body = json.loads(bytes(response.body))
         assert body["report"]["value"] == {"count": 42}
         assert body["report"]["mediaType"] == "application/json"
 
@@ -341,7 +344,7 @@ class TestSerializeResult:
 
         response = serialize_result(result, {"thumb": {}}, "document", description)
 
-        body = json.loads(response.body)
+        body = json.loads(bytes(response.body))
         assert body["thumb"]["encoding"] == "base64"
         assert body["thumb"]["mediaType"] == "image/png"
         assert base64.b64decode(body["thumb"]["value"]) == raw_bytes
@@ -355,7 +358,7 @@ class TestSerializeResult:
         response = serialize_result(result, {"features": {}}, "raw", description)
 
         assert response.media_type == "application/geo+json"
-        assert json.loads(response.body) == fc
+        assert json.loads(bytes(response.body)) == fc
 
     def test_document_response_geojson_qualified_value(self):
         """GeoJSON in document mode is wrapped as a qualified value."""
@@ -365,7 +368,7 @@ class TestSerializeResult:
 
         response = serialize_result(result, {"features": {}}, "document", description)
 
-        body = json.loads(response.body)
+        body = json.loads(bytes(response.body))
         assert body["features"]["value"] == fc
         assert body["features"]["mediaType"] == "application/geo+json"
 
@@ -383,7 +386,7 @@ class TestSerializeResult:
             reference_publisher=publisher,
         )
 
-        body = json.loads(response.body)
+        body = json.loads(bytes(response.body))
         assert body["report"] == {
             "href": "https://example.test/results/report",
             "type": "application/json",
@@ -447,4 +450,4 @@ class TestSerializeResult:
         response = serialize_result(result, {}, "raw", description)
 
         assert response.media_type == "application/json"
-        assert json.loads(response.body) == [1, 2, 3]
+        assert json.loads(bytes(response.body)) == [1, 2, 3]
