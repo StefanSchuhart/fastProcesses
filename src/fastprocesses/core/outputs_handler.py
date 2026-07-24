@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 from typing import Any
+from uuid import uuid4
 
 from fastapi.responses import JSONResponse, Response
 
@@ -51,10 +52,8 @@ def _build_raw_response(
     reference_publisher: OutputReferencePublisher | None,
 ) -> Response:
     if len(resolved) != 1:
-        raise ValueError(
-            "response='raw' requires exactly one output; "
-            f"got {list(resolved)}"
-        )
+        return _build_raw_multipart_response(result, resolved, reference_publisher)
+
     output_id, output_format = next(iter(resolved.items()))
     payload = result.serialize(output_id, output_format.media_type)
 
@@ -76,6 +75,50 @@ def _build_raw_response(
         return response
 
     return Response(content=payload, media_type=output_format.media_type)
+
+
+def _build_raw_multipart_response(
+    result: BaseProcessResult,
+    resolved: dict[str, ResolvedOutputFormat],
+    reference_publisher: OutputReferencePublisher | None,
+) -> Response:
+    """Build a multipart/related response for raw multi-output requests."""
+    boundary = f"fp-{uuid4().hex}"
+    parts: list[bytes] = []
+
+    for output_id, output_format in resolved.items():
+        payload = result.serialize(output_id, output_format.media_type)
+        part_media_type = output_format.media_type
+
+        if output_format.transmission_mode == "reference":
+            if reference_publisher is None:
+                raise ValueError(
+                    "transmissionMode='reference' requested, but no "
+                    "reference_publisher is configured."
+                )
+            href = reference_publisher.publish(
+                payload,
+                output_id=output_id,
+                media_type=output_format.media_type,
+            )
+            payload = json.dumps(
+                {"href": href, "type": output_format.media_type}
+            ).encode("utf-8")
+            part_media_type = "application/json"
+
+        part_header = (
+            f"--{boundary}\r\n"
+            f"Content-Type: {part_media_type}\r\n"
+            f"Content-ID: <{output_id}>\r\n\r\n"
+        ).encode("utf-8")
+        parts.append(part_header + payload + b"\r\n")
+
+    parts.append(f"--{boundary}--\r\n".encode("utf-8"))
+    body = b"".join(parts)
+    return Response(
+        content=body,
+        media_type=f'multipart/related; boundary="{boundary}"',
+    )
 
 
 def _build_document_response(
