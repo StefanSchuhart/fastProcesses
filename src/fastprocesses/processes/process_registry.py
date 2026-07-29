@@ -75,13 +75,26 @@ def _validate_process_registration(
 
 
 class ProcessRegistry:
-    """Manages the registration and retrieval of available processs (processes)."""
+    """Manages the registration and retrieval of available processes.
+
+    The in-process dict ``_local`` is the primary store and is always
+    authoritative on worker pods (where ``@register_process`` decorators
+    run at import time).  Redis is a secondary sync so that API pods —
+    which don't import process modules — can still list and look up
+    processes registered by workers.
+
+    Reads prefer ``_local`` and only fall back to Redis when the local
+    store is empty, which is the normal state on a pure-API pod.  This
+    means the registry stays fully functional even when Redis is
+    unavailable or OOM.
+    """
 
     def __init__(self, redis_connection: RedisConnection | None = None):
         self.registry_key = f"process_registry:{settings.FP_CELERY_QUEUE}"
         if redis_connection is None:
             redis_connection = RedisConnection(str(settings.results_cache.connection))
         self.redis_connection = redis_connection
+        self._local: dict[str, dict] = {}
 
     @property
     def redis(self):
@@ -89,104 +102,101 @@ class ProcessRegistry:
 
     def register_process(self, process_id: str, process: BaseProcess):
         """
-        Registers a process process in Redis:
-        - Stores process description and class path for dynamic loading
-        - Uses Redis hash structure for efficient lookups
-        - Enables process discovery and instantiation
+        Registers a process in the local store and syncs to Redis.
+
+        The local store is always written first so that the process is
+        immediately available regardless of Redis health.  The Redis sync
+        is best-effort: infrastructure errors (OOM, connection refused)
+        are logged but do not prevent the process from being usable.
         """
+        description: ProcessDescription = process.get_description()
+
+        # Validate the process class is correctly wired before persisting
+        _validate_process_registration(process_id, process, description)
+
+        description_dict = description.model_dump(exclude_none=True)
+        process_data = {
+            "description": description_dict,
+            "class_path": f"{process.__module__}.{process.__class__.__name__}",
+        }
+        logger.debug(
+            f"Process data to be registered:\n{json.dumps(process_data, indent=4)[:50]}"
+        )
+
+        self._local[process_id] = process_data
+        logger.info(f"Process {process_id} registered locally")
+
         try:
-            description: ProcessDescription = process.get_description()
-
-            # Validate the process class is correctly wired before persisting
-            _validate_process_registration(process_id, process, description)
-
-            # serialize the description
-            description_dict = description.model_dump(exclude_none=True)
-            process_data = {
-                "description": description_dict,
-                "class_path": f"{process.__module__}.{process.__class__.__name__}",
-            }
-            logger.debug(
-                f"Process data to be registered:\n{json.dumps(process_data, indent=4)[:50]}"
-            )
-
             result = self.redis_connection._execute_redis_command(
-                'hset', 
-                self.registry_key, 
-                process_id, 
+                'hset',
+                self.registry_key,
+                process_id,
                 json.dumps(process_data)
             )
-
             logger.debug(f"Redis hset result for registered process: {result}")
-
-            if result == 1:
-                logger.info(f"Process {process_id} registered successfully")
-
-            if result == 0:
-                logger.info(f"Process {process_id} already registered")
-
         except redis.exceptions.RedisError as e:
             # Redis infrastructure errors (e.g. OOM, connection refused) must not
-            # crash the app at startup — the process simply won't be registered.
-            logger.error(f"Failed to register process {process_id}: {e}")
-        except Exception as e:
-            logger.error(f"Failed to register process {process_id}: {e}")
-            raise
+            # prevent the process from being usable — it is already in _local.
+            logger.error(
+                f"Failed to sync process {process_id} to Redis "
+                f"(still available locally): {e}"
+            )
 
     def get_process_ids(self) -> List[str]:
         """
         Retrieves the IDs of all registered processes.
 
-        Returns:
-            List[str]: A list of process IDs.
+        Returns the local store when populated (worker pods); falls back
+        to Redis for API pods that don't run @register_process decorators.
         """
         logger.debug("Retrieving all registered process IDs")
-        keys: list[bytes] = self.redis_connection._execute_redis_command("hkeys",self.registry_key)  # type: ignore
+        if self._local:
+            return list(self._local.keys())
 
+        keys: list[bytes] = self.redis_connection._execute_redis_command(  # type: ignore
+            "hkeys", self.registry_key
+        )
         return [key.decode("utf-8") for key in keys]
 
     def has_process(self, process_id: str) -> bool:
         """
         Checks if a process is registered.
-
-        Args:
-            process_id (str): The ID of the process.
-
-        Returns:
-            bool: True if the process is registered, False otherwise.
         """
         logger.debug(f"Checking if process with ID {process_id} is registered")
+        if self._local:
+            return process_id in self._local
 
         return self.redis_connection._execute_redis_command(
-            'hexists', 
-            self.registry_key, 
+            'hexists',
+            self.registry_key,
             process_id
         )
 
     def get_process(self, process_id: str) -> BaseProcess:
         """
-        Dynamically loads and instantiates a process:
-        1. Retrieves process metadata from Redis
-        2. Uses Python's module system to locate the class
-        3. Instantiates a new process instance
+        Dynamically loads and instantiates a process.
 
-        The locate() function dynamically imports the class based on its path.
+        Resolves from the local store when populated; falls back to Redis
+        for API pods.  Uses Python's module system to locate and
+        instantiate the class from its stored dotted path.
         """
         logger.info(f"Retrieving process with ID: {process_id}")
-        process_data = self.redis_connection._execute_redis_command(
-            'hget', 
-            self.registry_key, 
-            process_id
-        )
 
-        if not process_data:
+        if self._local:
+            process_info = self._local.get(process_id)
+        else:
+            raw = self.redis_connection._execute_redis_command(
+                'hget',
+                self.registry_key,
+                process_id
+            )
+            process_info = json.loads(raw) if raw else None  # type: ignore
+
+        if not process_info:
             logger.error(f"Process {process_id} not found!")
             raise ValueError(f"Process {process_id} not found!")
 
-        process_info = json.loads(process_data)  # type: ignore
-        logger.debug(
-            f"Process data retrieved from Redis for {process_id}."
-        )
+        logger.debug(f"Process data retrieved for {process_id}.")
 
         process_class = cast(Type[BaseProcess], locate(process_info["class_path"]))
 
