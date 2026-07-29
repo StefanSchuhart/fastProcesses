@@ -4,6 +4,8 @@ import typing
 from pydoc import locate
 from typing import List, Type, cast
 
+import redis.exceptions
+
 from fastprocesses.common import settings
 from fastprocesses.core.base_process import BaseProcess
 from fastprocesses.core.exceptions import ProcessClassNotFoundError, ProcessRegistrationError
@@ -123,6 +125,10 @@ class ProcessRegistry:
             if result == 0:
                 logger.info(f"Process {process_id} already registered")
 
+        except redis.exceptions.RedisError as e:
+            # Redis infrastructure errors (e.g. OOM, connection refused) must not
+            # crash the app at startup — the process simply won't be registered.
+            logger.error(f"Failed to register process {process_id}: {e}")
         except Exception as e:
             logger.error(f"Failed to register process {process_id}: {e}")
             raise
