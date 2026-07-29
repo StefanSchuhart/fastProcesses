@@ -68,7 +68,7 @@ class CeleryResultConnectionConfig(BaseSettings):
 
     FP_CELERY_RESULT_HOST: str = "redis"
     FP_CELERY_RESULT_PORT: int = 6379
-    FP_CELERY_RESULT_DB: str = "0"
+    FP_CELERY_RESULT_DB: str = "1"
     FP_CELERY_RESULT_PASSWORD: SecretStr = SecretStr("")
 
     @computed_field
