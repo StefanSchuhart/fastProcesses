@@ -263,6 +263,88 @@ Retiring v1: `helm uninstall myproject-v1` → worker stops → v1 entries remai
 
 ---
 
+## Storage Architecture
+
+### Memory Pressure from Result Data
+
+The federated topology compounds Redis memory pressure: each additional worker chart registers its own processes and writes chord payloads, subtask claim-checks, job status entries, and final result caches to the shared Redis. Reducing `FP_CELERY_RESULTS_TTL_DAYS` defers OOM events but does not eliminate them as data volumes and payload sizes grow.
+
+Two complementary strategies address this:
+
+### Option A — DragonflyDB Tiered Storage (preferred)
+
+DragonflyDB supports transparent disk-backed tiering via `--tiered_prefix_paths`. Hot keys (actively polled job status, in-flight chord payloads) stay in RAM; cold keys are demoted automatically to NVMe SSD. No application code changes required.
+
+**Kubernetes configuration:**
+
+```yaml
+# dragonfly values.yaml
+args:
+  - --tiered_prefix_paths=/dragonfly/data
+  - --maxmemory=4gb            # RAM ceiling; demotion begins before OOM
+  - --maxmemory-policy=noeviction  # never silently evict — demote to disk instead
+
+volumeMounts:
+  - name: tiered-storage
+    mountPath: /dragonfly/data
+
+volumes:
+  - name: tiered-storage
+    persistentVolumeClaim:
+      claimName: dragonfly-nvme-pvc   # StorageClass must be NVMe or fast SSD
+```
+
+> **Note:** Spinning disk (>5 ms random I/O) negates the benefit of tiering for latency-sensitive workloads. NVMe or SSD-backed PVCs are required.
+
+**Access pattern alignment with tiering:**
+
+| Key pattern | Access frequency | Expected tier |
+|---|---|---|
+| `job_status:job:{id}` — active job | High (polled by client) | RAM |
+| `chord:payload:{job_id}` — claim-check input | Read once by subtask | RAM → cold after pick-up |
+| `chord:result:{job_id}:{task_id}` — subtask result | Read once by finalize | RAM → cold after merge |
+| `process_results:{job_id}` — chord final result | Read once on `/results` fetch | Cold after first GET |
+| `process_results:{celery_key}` — input-hash dedup | Read on cache hit only | Cold (most requests miss) |
+| `process_registry:{queue}` — registry hash | Startup only | Cold |
+
+Result payloads dominate memory usage and are naturally cold: written once, read once, then idle until TTL expiry. Tiering relocates exactly this class of data to disk without any change to the application.
+
+### Option B — Object Storage for Large Payloads (architectural alternative)
+
+The claim-check pattern is already implemented in `chord_tasks.py`. It can be extended to route payloads above a size threshold to object storage (S3 / MinIO / Azure Blob Storage), with Redis holding only a reference marker:
+
+```python
+LARGE_PAYLOAD_THRESHOLD_BYTES = 1 * 1024 * 1024  # 1 MB configurable
+
+def put_with_tiering(cache: TempResultCache, key: str, value: Any) -> None:
+    serialized = json.dumps(jsonable_encoder(value))
+    if len(serialized.encode()) > LARGE_PAYLOAD_THRESHOLD_BYTES:
+        s3_key = f"fp-results/{key}"
+        s3_client.put_object(Bucket=RESULTS_BUCKET, Key=s3_key, Body=serialized)
+        cache.put(key, {"__s3__": s3_key})  # tiny reference replaces payload in Redis
+    else:
+        cache.put(key, value)
+```
+
+The corresponding `get_with_tiering` resolves the `__s3__` marker transparently before returning.
+
+**Tradeoffs:**
+
+| | DragonflyDB tiering | Object storage claim-check |
+|---|---|---|
+| Application code changes | None | Yes — new put/get utility; all `temp_result_cache` call sites |
+| New infrastructure dependency | NVMe PVC only | S3/MinIO service |
+| Cold-read latency | ~1–5 ms (NVMe) | ~20–100 ms (S3) |
+| Works with Redis OSS | No | Yes |
+| Max payload size | Bounded by PVC | Unlimited |
+| Storage cost at scale | PVC $/GB | S3 $/GB (lower) |
+
+### Recommendation
+
+**Already on DragonflyDB:** enable tiered storage with an NVMe-backed PVC. Zero code changes, transparent to all clients, directly caps Redis RAM usage. Implement Option B only if individual result payloads exceed single-digit GB or if DragonflyDB is not available in the target environment.
+
+---
+
 ## Files to Change
 
 | File | Change |
