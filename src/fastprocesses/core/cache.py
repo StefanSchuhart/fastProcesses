@@ -1,7 +1,8 @@
-import json
+import zlib
 from typing import Any
 from pydantic import RedisDsn
 
+import orjson
 from fastapi.encoders import jsonable_encoder
 
 from fastprocesses.core.logging import logger
@@ -36,20 +37,19 @@ class TempResultCache:
 
         serialized_value = self.redis_connection._execute_redis_command("get", key)
 
-        if isinstance(serialized_value, bytes):
+        if isinstance(serialized_value, (bytes, str)):
             logger.debug(f"Received data from cache: {str(serialized_value)[:80]}")
-            return json.loads(serialized_value.decode("utf-8"))
-        elif isinstance(serialized_value, str):
-            logger.debug(f"Received data from cache: {serialized_value[:80]}")
-            return json.loads(serialized_value)
+            # zlib.decompress works directly on bytes; no bytes->str->dict hop.
+            raw = serialized_value.encode("utf-8") if isinstance(serialized_value, str) else serialized_value
+            return orjson.loads(zlib.decompress(raw))
         logger.info(f"Cache miss for key: {key}")
         return None
 
-    def put(self, key: str, value: Any) -> str:
+    def put(self, key: str, value: Any) -> bytes:
         logger.debug(f"Putting cache for key: {key}")
         key = self._make_key(key)
         jsonable_value = jsonable_encoder(value, exclude_none=True)
-        serialized_value = json.dumps(jsonable_value)
+        serialized_value = zlib.compress(orjson.dumps(jsonable_value))
         ttl = self._ttl_days * 24 * 60 * 60  # Convert days to seconds
 
         self.redis_connection._execute_redis_command(

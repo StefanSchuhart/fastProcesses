@@ -1,9 +1,10 @@
-import json
 import logging
 import signal
 import sys
+import zlib
 from typing import Any
 
+import orjson
 from celery import Celery
 from celery.signals import worker_ready, worker_shutdown, task_postrun
 from fastapi.encoders import jsonable_encoder
@@ -40,13 +41,13 @@ def sigint_handler(signum, frame):
     sys.exit(0)
 
 def custom_json_serializer(obj):
-    # Use jsonable_encoder to handle complex objects
-    return json.dumps(jsonable_encoder(obj))
+    # zlib-compressed orjson: cuts both broker payload size and result-backend
+    # storage size (same amplification risk as TempResultCache, see cache.py).
+    return zlib.compress(orjson.dumps(jsonable_encoder(obj)))
 
 
 def custom_json_deserializer(data):
-    # Deserialize JSON back into Python objects
-    return json.loads(data)
+    return orjson.loads(zlib.decompress(data))
 
 # Register the custom serializer
 register(
@@ -54,7 +55,7 @@ register(
     custom_json_serializer,
     custom_json_deserializer,
     content_type="application/x-custom-json",
-    content_encoding="utf-8",
+    content_encoding="binary",
 )
 
 celery_app = Celery(
