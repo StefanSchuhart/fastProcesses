@@ -75,3 +75,13 @@ class SSRFBlockedError(FastProcessesError):
 
     def __init__(self, reason: str):
         super().__init__(f"Remote input blocked by SSRF protection: {reason}")
+
+
+class ResultTooLargeError(FastProcessesError):
+    """Raised when a cached result exceeds the configured/hardcoded size limit."""
+
+    def __init__(self, key: str, size: int, limit: int):
+        super().__init__(
+            f"Result for key '{key}' is {size} bytes, exceeding the limit of "
+            f"{limit} bytes"
+        )
