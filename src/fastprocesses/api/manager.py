@@ -530,7 +530,10 @@ class ProcessManager:
         # Sync path: build CalculationTask for cache key and result retrieval.
         # Sync execution is intended for fast/small jobs where this overhead is acceptable.
         calculation_task = CalculationTask(
-            inputs=data.inputs, outputs=data.outputs, response=data.response
+            inputs=data.inputs,
+            outputs=data.outputs,
+            response=data.response,
+            process_id=process_id,
         )
         return SyncExecutionStrategy(self).execute(process_id, calculation_task)
 
