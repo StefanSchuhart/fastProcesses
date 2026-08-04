@@ -43,7 +43,7 @@ Reuse the existing claim-check marker convention (`{"__claim_check__": rkey}` in
 
 **Verify:** a parallel/scatter process execution stores the result exactly once in `results_cache` Redis (spot-check via `redis-cli` key count / `MEMORY USAGE`); `GET /jobs/{id}/results` still returns the correct payload via the pointer.
 
-### Phase 3 — `FP_MAX_RESULT_SIZE_BYTES` safeguard
+### Phase 3 — `FP_MAX_RESULT_SIZE_BYTES` safeguard (DONE)
 
 - Add `FP_MAX_RESULT_SIZE_BYTES: int | None = None` to `OGCProcessesSettings` (`config.py`), default `None` (disabled).
 - Add `ResultTooLargeError` to `core/exceptions.py`.
@@ -62,6 +62,8 @@ Reuse the existing claim-check marker convention (`{"__claim_check__": rkey}` in
 - `msgpack`/binary numeric encoding (deferred) — a larger, separate change (versioned wire format, touches `outputs_handler.py`/serializers) only worth pursuing if numeric-array-heavy results turn out to dominate payload size; not pursued now.
 
 **Verify:** a synthetic oversized result raises `ResultTooLargeError` and the job status ends as `FAILED` with a descriptive message, both for `BaseProcess` and `BaseParallelProcess` paths. Confirm `orjson`/`zlib` round-trip correctly for `TempResultCache` and for Celery's `custom_json` serializer (task args and result backend).
+
+**Confirmed working in production log (2026-08-04)**: a `pluvial-flood-risk-citywide` job produced an 18147-polygon Voronoi/Thiessen result; the log shows `Cache entry size for key process_results/<hash>: 3215540 bytes` (the compressed size) and the compressed `zlib` byte stream (`b'x\x9c...'` — zlib magic header) being read back and cache-hit correctly on a second identical request ("Cache hit in worker for process_id=..."). Confirms the orjson/zlib round-trip and STRLEN-based size logging work correctly end-to-end. Implemented fully: `FP_MAX_RESULT_SIZE_BYTES` (default 10 MiB) wired into `temp_result_cache` via a new `max_size_bytes` param on `TempResultCache` (left `None`/unguarded for `job_status_cache`/`job_request_cache`, which hold small bounded metadata — resolves Open Question 2); unconditional 50 MiB hard read-side ceiling in `TempResultCache.get()` (resolves Open Question 3); `cache_computed_result` (`common.py`) re-raises `ResultTooLargeError` instead of swallowing it; `on_success` (`celery_app.py`) catches it and marks the job `FAILED` with a clear message (rather than leaving a misleading `SUCCESSFUL` with no populated dedup cache entry); `finalize_parallel`/`finalize_scatter` (`chord_tasks.py`) let it propagate past the inner caching `try/except` to the outer handler, which marks the job `FAILED`.
 
 
 ### Phase 4 — Small bugfixes (independent, low-risk) (DONE)
