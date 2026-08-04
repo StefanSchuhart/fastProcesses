@@ -233,6 +233,7 @@ class CalculationTask(BaseModel):
     inputs: Annotated[Dict[str, Any], AfterValidator(deserialize_json)]
     outputs: dict[str, OutputControl] | None = None
     response: ResponseType = ResponseType.RAW
+    process_id: str
 
     def _hash_dict(self):
         # The cache key is based on *what* is computed, not *how* it is
@@ -249,7 +250,10 @@ class CalculationTask(BaseModel):
         # fields may remain as raw dicts, producing a different str() repr).
         # Restrict to inputs/outputs to avoid triggering the celery_key
         # computed field, which would cause infinite recursion.
-        task_data = self.model_dump(mode="json", include={"inputs", "outputs"})
+        task_data = self.model_dump(
+            mode="json", include={"inputs", "outputs", "process_id"}
+        )
+
         # Reduce each OutputControl to just the output ID (its presence signals
         # "include this output"); strip format / transmissionMode so format
         # preferences don't bust the cache.
@@ -258,9 +262,11 @@ class CalculationTask(BaseModel):
             normalised_outputs = sorted(raw_outputs.keys())
         else:
             normalised_outputs = None
+
         data = {
             "inputs": task_data.get("inputs"),
             "outputs": normalised_outputs,
+            "process_id": task_data.get("process_id"),
         }
         return hashlib.sha256(
             json.dumps(data, sort_keys=True).encode()
