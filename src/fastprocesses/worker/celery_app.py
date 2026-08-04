@@ -12,6 +12,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from pydantic import BaseModel, ValidationError
 
 from fastprocesses.common import (
+    cache_computed_result,
     celery_app,
     sigint_handler,
     sigterm_handler,
@@ -48,23 +49,18 @@ class CacheResultTask(Task):
             # a chord; the finalize_* callback task handles caching instead.
             return
         try:
-            # Deserialize the original data
+            # Deserialize the original data. process_id is passed as a
+            # separate task arg (args[0]), not embedded in the serialized body.
             original_data = json.loads(args[1])
-            calculation_task = CalculationTask(**original_data)
-
-            # Get the the hash key for the task
-            key = calculation_task.celery_key
-
-            # Store the result in cache
-            # Use the task ID as the key
-            serialized_result = temp_result_cache.put(key=key, value=retval)
-
-            # TODO: shorten retval log!
-            logger.info(
-                f"Saved result with key {key} to cache: {serialized_result[:80]}"
-            )
+            calculation_task = CalculationTask(**original_data, process_id=args[0])
         except Exception as e:
             logger.error(f"Error caching results: {e}")
+            return
+
+        # job_id is intentionally omitted: Celery's own result backend already
+        # stores retval under this task's id, so a bridging pointer is not
+        # needed here (unlike the chord finalize_* callbacks).
+        cache_computed_result(temp_result_cache, calculation_task.celery_key, retval)
 
 # ---------------------------------------------------------------------------
 # Parallel / scatter subtask progress tracking
@@ -100,7 +96,7 @@ def execute_process(self, process_id: str, serialized_data: str | bytes):
     # identical inputs (especially important for parallel/scatter processes
     # where the full chord would otherwise be dispatched again).
     try:
-        calculation_task = CalculationTask(**data)
+        calculation_task = CalculationTask(**data, process_id=process_id)
         cached_result = temp_result_cache.get(key=calculation_task.celery_key)
         if cached_result is not None:
             logger.info(

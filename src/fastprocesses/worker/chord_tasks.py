@@ -6,7 +6,7 @@ from typing import Any, cast
 from celery import chord
 from fastapi.encoders import jsonable_encoder
 
-from fastprocesses.common import celery_app, temp_result_cache
+from fastprocesses.common import cache_computed_result, celery_app, temp_result_cache
 from fastprocesses.core.base_process import (
     BaseParallelProcess,
     BaseScatterProcess,
@@ -217,13 +217,14 @@ def finalize_parallel(
 
         try:
             if original_input is not None:
-                calculation_task = CalculationTask(**original_input)
-                temp_result_cache.put(key=calculation_task.celery_key, value=merged)
-                # job_id points at the celery_key entry instead of duplicating
-                # the (potentially large) payload in the same Redis instance.
-                temp_result_cache.put(
-                    key=job_id,
-                    value={"__result_ref__": calculation_task.celery_key},
+                calculation_task = CalculationTask(
+                    **original_input, process_id=process_id
+                )
+                # job_id bridges to the celery_key entry: execute_process
+                # returned None for this chord-dispatched job, so Celery's own
+                # result backend never got a result under job_id.
+                cache_computed_result(
+                    temp_result_cache, calculation_task.celery_key, merged, job_id=job_id
                 )
             else:
                 # No original_input to derive a celery_key from; fall back to
@@ -436,13 +437,12 @@ def finalize_scatter(
         merged = merge_result.model_dump(mode="json")
 
         try:
-            calculation_task = CalculationTask(**original_input)
-            temp_result_cache.put(key=calculation_task.celery_key, value=merged)
-            # job_id points at the celery_key entry instead of duplicating
-            # the (potentially large) payload in the same Redis instance.
-            temp_result_cache.put(
-                key=job_id,
-                value={"__result_ref__": calculation_task.celery_key},
+            calculation_task = CalculationTask(**original_input, process_id=process_id)
+            # job_id bridges to the celery_key entry: execute_process
+            # returned None for this chord-dispatched job, so Celery's own
+            # result backend never got a result under job_id.
+            cache_computed_result(
+                temp_result_cache, calculation_task.celery_key, merged, job_id=job_id
             )
             logger.info(
                 f"Cached scatter result for process {process_id} (job {job_id})."
