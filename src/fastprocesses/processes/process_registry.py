@@ -92,7 +92,9 @@ class ProcessRegistry:
     def __init__(self, redis_connection: RedisConnection | None = None):
         self.registry_key = f"process_registry:{settings.FP_CELERY_QUEUE}"
         if redis_connection is None:
-            redis_connection = RedisConnection(str(settings.results_cache.connection))
+            # Broker connection, not results_cache: registry lookups must not be
+            # coupled to results-cache memory pressure (see incident #2).
+            redis_connection = RedisConnection(str(settings.celery_broker.connection))
         self.redis_connection = redis_connection
         self._local: dict[str, dict] = {}
 
