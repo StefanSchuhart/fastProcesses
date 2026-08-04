@@ -12,6 +12,7 @@ from kombu.serialization import register
 
 from fastprocesses.core.cache import TempResultCache
 from fastprocesses.core.config import OGCProcessesSettings
+from fastprocesses.core.exceptions import ResultTooLargeError
 from fastprocesses.core.logging import InterceptHandler, logger
 
 
@@ -172,6 +173,7 @@ temp_result_cache = TempResultCache(
     key_prefix="process_results",
     ttl_days=settings.FP_RESULTS_TEMP_TTL_HOURS,
     connection=settings.results_cache.connection,
+    max_size_bytes=settings.FP_MAX_RESULT_SIZE_BYTES,
 )
 
 job_status_cache = TempResultCache(
@@ -213,5 +215,9 @@ def cache_computed_result(
         cache.put(key=celery_key, value=value)
         if job_id is not None:
             cache.put(key=job_id, value={"__result_ref__": celery_key})
+    except ResultTooLargeError:
+        # Job-fatal: callers must mark the job FAILED rather than let it
+        # silently succeed with no cached/retrievable result.
+        raise
     except Exception as e:
         logger.error(f"Error caching result for key {celery_key}: {e}")

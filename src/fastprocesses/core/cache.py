@@ -5,8 +5,14 @@ from pydantic import RedisDsn
 import orjson
 from fastapi.encoders import jsonable_encoder
 
+from fastprocesses.core.exceptions import ResultTooLargeError
 from fastprocesses.core.logging import logger
 from fastprocesses.core.redis_connection import RedisConnection
+
+# Unconditional read-side ceiling, independent of FP_MAX_RESULT_SIZE_BYTES:
+# protects against ever decoding/parsing a value large enough to amplify
+# into hundreds of MB during zlib/orjson decode, regardless of configuration.
+_HARD_READ_CEILING_BYTES = 50 * 1024 * 1024  # 50 MiB
 
 
 class TempResultCache:
@@ -16,6 +22,7 @@ class TempResultCache:
         ttl_days: int,
         connection: str | RedisDsn | None = None,
         redis_connection: RedisConnection | None = None,
+        max_size_bytes: int | None = None,
     ):
         if redis_connection is None:
             if connection is None:
@@ -26,6 +33,7 @@ class TempResultCache:
         self.redis_connection = redis_connection
         self._key_prefix = key_prefix
         self._ttl_days = ttl_days
+        self._max_size_bytes = max_size_bytes
 
     @property
     def _redis(self):
@@ -33,30 +41,46 @@ class TempResultCache:
 
     def get(self, key: str) -> dict | None:
         logger.debug(f"Getting cache for key: {key}")
-        key = self._make_key(key)
+        made_key = self._make_key(key)
 
-        size = self.redis_connection._execute_redis_command("strlen", key)
-        logger.info(f"Cache entry size for key {key}: {size} bytes")
+        size = self.redis_connection._execute_redis_command("strlen", made_key)
+        logger.info(f"Cache entry size for key {made_key}: {size} bytes")
 
-        serialized_value = self.redis_connection._execute_redis_command("get", key)
+        if size and size > _HARD_READ_CEILING_BYTES:
+            logger.error(
+                f"Refusing to read oversized cache entry for key {made_key}: "
+                f"{size} bytes exceeds hard ceiling of {_HARD_READ_CEILING_BYTES} bytes"
+            )
+            raise ResultTooLargeError(made_key, size, _HARD_READ_CEILING_BYTES)
+
+        serialized_value = self.redis_connection._execute_redis_command("get", made_key)
 
         if isinstance(serialized_value, (bytes, str)):
             logger.debug(f"Received data from cache: {str(serialized_value)[:80]}")
             # zlib.decompress works directly on bytes; no bytes->str->dict hop.
             raw = serialized_value.encode("utf-8") if isinstance(serialized_value, str) else serialized_value
             return orjson.loads(zlib.decompress(raw))
-        logger.info(f"Cache miss for key: {key}")
+        logger.info(f"Cache miss for key: {made_key}")
         return None
 
     def put(self, key: str, value: Any) -> bytes:
         logger.debug(f"Putting cache for key: {key}")
-        key = self._make_key(key)
+        made_key = self._make_key(key)
         jsonable_value = jsonable_encoder(value, exclude_none=True)
         serialized_value = zlib.compress(orjson.dumps(jsonable_value))
+
+        if (
+            self._max_size_bytes is not None
+            and len(serialized_value) > self._max_size_bytes
+        ):
+            raise ResultTooLargeError(
+                made_key, len(serialized_value), self._max_size_bytes
+            )
+
         ttl = self._ttl_days * 24 * 60 * 60  # Convert days to seconds
 
         self.redis_connection._execute_redis_command(
-            "setex", key, ttl, serialized_value
+            "setex", made_key, ttl, serialized_value
         )
 
         return serialized_value
