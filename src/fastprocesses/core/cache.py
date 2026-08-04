@@ -35,6 +35,9 @@ class TempResultCache:
         logger.debug(f"Getting cache for key: {key}")
         key = self._make_key(key)
 
+        size = self.redis_connection._execute_redis_command("strlen", key)
+        logger.info(f"Cache entry size for key {key}: {size} bytes")
+
         serialized_value = self.redis_connection._execute_redis_command("get", key)
 
         if isinstance(serialized_value, (bytes, str)):
