@@ -613,6 +613,9 @@ class ProcessManager:
                 task_result = self._resolve_result_ref(task_result)
                 if task_result is None:
                     raise JobNotReadyError(job_id)
+            elif job_status_val == JobStatusCode.FAILED:
+                message = job_info.get("message") if job_info else None
+                raise JobFailedError(job_id, message or "Job failed. See server logs.")
             else:
                 raise JobNotReadyError(job_id)
 
