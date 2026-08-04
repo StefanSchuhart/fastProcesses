@@ -96,7 +96,12 @@ worker:
 
 config:
   apiTitle: "fastprocesses API"
+  apiVersion: "1.0.0"
   apiDescription: "An OGC API Processes implementation powered by fastprocesses."
+
+  # Origins allowed to make cross-origin requests to the API (CORS).
+  corsAllowedOrigins:
+    - "*"
 
   worker:
     allowedInputOrigins: []
@@ -129,6 +134,14 @@ config:
     jobMode: false
 
   syncExecutionTimeoutSeconds: 10
+
+  logLevel: "INFO"
+
+  # Maximum size (compressed, bytes) of a cached process result; null disables the guard.
+  maxResultSizeBytes: 10485760
+
+  # Skip JSON-Schema input validation on the worker — debugging only, never enable in production.
+  skipInputValidation: false
 
   # Arbitrary extra key/value string pairs added to the ConfigMap.
   # Use this for app-specific environment variables that are plain strings.
