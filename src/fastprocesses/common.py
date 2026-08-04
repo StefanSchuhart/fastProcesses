@@ -2,6 +2,7 @@ import json
 import logging
 import signal
 import sys
+from typing import Any
 
 from celery import Celery
 from celery.signals import worker_ready, worker_shutdown, task_postrun
@@ -177,3 +178,39 @@ job_status_cache = TempResultCache(
     ttl_days=settings.FP_JOB_STATUS_TTL_DAYS,
     connection=settings.results_cache.connection,
 )
+
+# Holds per-request output/format preferences (outputs, response mode) keyed
+# by job_id, so GET /jobs/{job_id}/results can honour them. Distinct from
+# job_status_cache, which holds only JobStatusInfo records.
+job_request_cache = TempResultCache(
+    key_prefix="job_request",
+    ttl_days=settings.FP_JOB_STATUS_TTL_DAYS,
+    connection=settings.results_cache.connection,
+)
+
+
+def cache_computed_result(
+    cache: TempResultCache, celery_key: str, value: Any, *, job_id: str | None = None
+) -> None:
+    """Writes a computed result to the dedup cache under its celery_key.
+
+    This is the single entry point for caching results, used both by
+    CacheResultTask.on_success (plain BaseProcess) and the finalize_parallel/
+    finalize_scatter chord callbacks, so both paths behave identically.
+
+    `cache` is passed in (rather than using the module-level temp_result_cache
+    directly) so callers keep using their own imported reference — this keeps
+    call sites patchable/mockable in tests the same way they were before.
+
+    job_id must only be passed for chord-dispatched processes: execute_process
+    returns None for those, so Celery's own result backend never gets a
+    result under job_id, and get_job_result needs a pointer to bridge to the
+    celery_key entry. Plain BaseProcess results are retrieved via Celery's
+    AsyncResult(job_id) directly and must not pass job_id here.
+    """
+    try:
+        cache.put(key=celery_key, value=value)
+        if job_id is not None:
+            cache.put(key=job_id, value={"__result_ref__": celery_key})
+    except Exception as e:
+        logger.error(f"Error caching result for key {celery_key}: {e}")
