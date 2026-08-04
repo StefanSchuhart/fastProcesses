@@ -20,9 +20,6 @@ This plan consolidates all fixes discussed in response to these incidents into o
 - `CalculationTask._hash_dict()` must include `process_id` in the hash. Today it hashes only `inputs` + normalized `outputs`, so two *different* processes with structurally identical inputs/outputs shapes can collide on the same `celery_key` — a real cross-process cache-poisoning bug, independent of the pointer work but must land before/alongside it (a collision would otherwise corrupt the canonical single-copy result).
 - `FP_MAX_RESULT_SIZE_BYTES` is an opt-in safeguard (default: disabled / `None`) — existing deployments should not have a new failure mode appear without opt-in.
 - `TempResultCache.get()` must pre-check size (`STRLEN`) before decode+parse, to avoid ever materializing an oversized value in memory.
-- Two identified but unrelated small bugs, tracked here since they touch the same files, but independently fixable/landable:
-  - `common.py`: `result_expires=settings.FP_CELERY_RESULTS_TTL_DAYS * 86000` should be `86400` (results currently expire ~40 min early at 365-day TTL).
-  - `config.py`: reconcile whether `FP_CELERY_RESULT_DB` still defaults to `"0"` (matching broker, a footgun) or has already been fixed to `"1"` — current repo state needs re-verification.
 - `ProcessRegistry`'s default Redis connection (`settings.results_cache.connection` vs. `settings.celery_broker.connection`) — proposed switch agreed as architecturally cleaner in discussion, but **no go-ahead given yet**. Tracked here as an open decision, not committed to this plan's scope.
 
 ---
@@ -67,7 +64,7 @@ Reuse the existing claim-check marker convention (`{"__claim_check__": rkey}` in
 **Verify:** a synthetic oversized result raises `ResultTooLargeError` and the job status ends as `FAILED` with a descriptive message, both for `BaseProcess` and `BaseParallelProcess` paths. Confirm `orjson`/`zlib` round-trip correctly for `TempResultCache` and for Celery's `custom_json` serializer (task args and result backend).
 
 
-### Phase 4 — Small bugfixes (independent, low-risk)
+### Phase 4 — Small bugfixes (independent, low-risk) (DONE)
 
 - `config.py`: verify current `FP_CELERY_RESULT_DB` default against the incident-era assumption; document the resolution (already fixed vs. needs fixing) in this plan or inline comment.
 
