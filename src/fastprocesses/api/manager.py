@@ -309,6 +309,7 @@ class SyncExecutionStrategy(ExecutionStrategy):
             while time.monotonic() < deadline:
                 result = self.process_manager.cache.get(key=task.id)
                 if result is not None:
+                    result = self.process_manager._resolve_result_ref(result)
                     break
                 time.sleep(0.1)
             if result is None:
@@ -607,11 +608,20 @@ class ProcessManager:
                 task_result = self.cache.get(key=job_id)
                 if task_result is None:
                     raise JobNotReadyError(job_id)
+                task_result = self._resolve_result_ref(task_result)
+                if task_result is None:
+                    raise JobNotReadyError(job_id)
             else:
                 raise JobNotReadyError(job_id)
 
         # in case of SUCCESS only, get the results directly (non-blocking)
         return task_result
+
+    def _resolve_result_ref(self, value: Any) -> Any:
+        """Follows a {"__result_ref__": celery_key} pointer to its canonical entry."""
+        if isinstance(value, dict) and "__result_ref__" in value:
+            return self.cache.get(key=value["__result_ref__"])
+        return value
 
     def delete_job(self, job_id: str) -> Dict[str, Any]:
         """

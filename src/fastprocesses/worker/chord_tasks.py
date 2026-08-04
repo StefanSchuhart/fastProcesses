@@ -163,7 +163,7 @@ def finalize_parallel(
     process_id: str,
     job_id: str,
     meta_key: str,
-) -> dict:
+) -> dict | None:
     """
     Chord callback for ``BaseParallelProcess``.
 
@@ -219,9 +219,16 @@ def finalize_parallel(
             if original_input is not None:
                 calculation_task = CalculationTask(**original_input)
                 temp_result_cache.put(key=calculation_task.celery_key, value=merged)
-            # Also store under job_id so get_job_result can retrieve it when
-            # execute_process returned None (chord-dispatched tasks).
-            temp_result_cache.put(key=job_id, value=merged)
+                # job_id points at the celery_key entry instead of duplicating
+                # the (potentially large) payload in the same Redis instance.
+                temp_result_cache.put(
+                    key=job_id,
+                    value={"__result_ref__": calculation_task.celery_key},
+                )
+            else:
+                # No original_input to derive a celery_key from; fall back to
+                # storing the full payload directly under job_id.
+                temp_result_cache.put(key=job_id, value=merged)
             logger.info(
                 f"Cached parallel result for process {process_id} (job {job_id})."
             )
@@ -431,8 +438,12 @@ def finalize_scatter(
         try:
             calculation_task = CalculationTask(**original_input)
             temp_result_cache.put(key=calculation_task.celery_key, value=merged)
-            # Also store under job_id so get_job_result can retrieve it.
-            temp_result_cache.put(key=job_id, value=merged)
+            # job_id points at the celery_key entry instead of duplicating
+            # the (potentially large) payload in the same Redis instance.
+            temp_result_cache.put(
+                key=job_id,
+                value={"__result_ref__": calculation_task.celery_key},
+            )
             logger.info(
                 f"Cached scatter result for process {process_id} (job {job_id})."
             )
