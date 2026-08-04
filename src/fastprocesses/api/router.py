@@ -389,9 +389,7 @@ def get_router(
                     # Retrieve the original requested outputs and response mode
                     # that were stored when the job was submitted.  Falls back
                     # to {} (all outputs, document mode) for legacy job records.
-                    job_request = process_manager.job_status_cache.get(
-                        f"job_request:{job_id}"
-                    )
+                    job_request = process_manager.job_request_cache.get(job_id)
                     requested_outputs = (job_request or {}).get("outputs") or {}
                     response_mode = (job_request or {}).get("response") or "document"
                     return serialize_result(

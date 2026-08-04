@@ -12,6 +12,7 @@ from celery.result import AsyncResult
 
 from fastprocesses.common import (
     celery_app,
+    job_request_cache,
     job_status_cache,
     settings,
     temp_result_cache,
@@ -366,6 +367,7 @@ class ProcessManager:
         self.process_registry = get_process_registry()
         self.cache = temp_result_cache
         self.job_status_cache = job_status_cache
+        self.job_request_cache = job_request_cache
         self.output_reference_publisher = output_reference_publisher
 
     def get_worker_status(self) -> Dict[str, Any]:
@@ -525,7 +527,7 @@ class ProcessManager:
                     "outputs": data.model_dump(mode="json", include={"outputs"})["outputs"],
                     "response": data.response,
                 }
-                self.job_status_cache.put(f"job_request:{response.jobID}", request_meta)
+                self.job_request_cache.put(response.jobID, request_meta)
             return response
 
         # Sync path: build CalculationTask for cache key and result retrieval.
