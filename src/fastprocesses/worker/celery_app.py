@@ -18,6 +18,7 @@ from fastprocesses.common import (
     sigterm_handler,
     temp_result_cache,
 )
+from fastprocesses.core.exceptions import ResultTooLargeError
 from fastprocesses.core.logging import logger
 from fastprocesses.core.models import (
     CalculationTask,
@@ -60,7 +61,22 @@ class CacheResultTask(Task):
         # job_id is intentionally omitted: Celery's own result backend already
         # stores retval under this task's id, so a bridging pointer is not
         # needed here (unlike the chord finalize_* callbacks).
-        cache_computed_result(temp_result_cache, calculation_task.celery_key, retval)
+        try:
+            cache_computed_result(
+                temp_result_cache, calculation_task.celery_key, retval
+            )
+        except ResultTooLargeError as e:
+            # Reject oversized results outright rather than let the job stay
+            # SUCCESSFUL with no usable cache entry (mirrors finalize_parallel/
+            # finalize_scatter's handling of the same error).
+            logger.error(f"Result too large to cache for job {task_id}: {e}")
+            update_job_status(
+                task_id,
+                0,
+                f"Result too large to cache (job_id={task_id}). {e}",
+                JobStatusCode.FAILED,
+                process_id=args[0],
+            )
 
 # ---------------------------------------------------------------------------
 # Parallel / scatter subtask progress tracking
