@@ -30,7 +30,6 @@ data:
   FP_SKIP_INPUT_VALIDATION: {{ .Values.config.skipInputValidation | quote }}
   FP_CELERY_JOB_MODE: {{ (or .Values.autoscaling.worker.keda.useScaledJob .Values.config.celery.jobMode) | quote }}
   FP_CLEAR_REGISTRY_ON_STARTUP: {{ .Values.api.clearRegistryOnStartup | quote }}
-  FP_WORKER_ALLOWED_INPUT_ORIGINS: {{ (join "," .Values.config.worker.allowedInputOrigins) | quote }}
   {{- range $key, $val := .Values.config.extraConfigMapData }}
   {{ $key }}: {{ $val | quote }}
   {{- end }}

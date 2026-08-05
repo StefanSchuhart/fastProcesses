@@ -103,9 +103,6 @@ config:
   corsAllowedOrigins:
     - "*"
 
-  worker:
-    allowedInputOrigins: []
-
   resultCache:
     host: "redis"
     port: 6379
