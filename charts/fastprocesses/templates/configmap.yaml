@@ -8,7 +8,7 @@ data:
   FP_API_TITLE: {{ .Values.config.apiTitle | quote }}
   FP_API_VERSION: {{ .Values.config.apiVersion | quote }}
   FP_API_DESCRIPTION: {{ .Values.config.apiDescription | quote }}
-  FP_CORS_ALLOWED_ORIGINS: {{ (join "," .Values.config.corsAllowedOrigins) | quote }}
+  FP_CORS_ALLOWED_ORIGINS: {{ .Values.config.corsAllowedOrigins | toJson | quote }}
   FP_RESULT_CACHE_HOST: {{ .Values.config.resultCache.host | quote }}
   FP_RESULT_CACHE_PORT: {{ .Values.config.resultCache.port | quote }}
   FP_RESULT_CACHE_DB: {{ .Values.config.resultCache.db | quote }}
