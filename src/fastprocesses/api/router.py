@@ -246,8 +246,10 @@ def get_router(
                 process = process_manager.process_registry.get_process(process_id)
                 result_class = _get_result_class(process)
                 if result_class is not None and isinstance(result, dict):
+                    parsed_result = result_class.model_validate(result)
+                    del result  # avoid holding both the raw and parsed copy
                     return serialize_result(
-                        result_class.model_validate(result),
+                        parsed_result,
                         (exec_body.outputs or {}),
                         exec_body.response or "raw",
                         process.process_description,
@@ -392,8 +394,10 @@ def get_router(
                     job_request = process_manager.job_request_cache.get(job_id)
                     requested_outputs = (job_request or {}).get("outputs") or {}
                     response_mode = (job_request or {}).get("response") or "document"
+                    parsed_result = result_class.model_validate(result)
+                    del result  # avoid holding both the raw and parsed copy
                     return serialize_result(
-                        result_class.model_validate(result),
+                        parsed_result,
                         requested_outputs,
                         response_mode,
                         process.process_description,
