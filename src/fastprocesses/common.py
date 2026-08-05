@@ -14,6 +14,7 @@ from fastprocesses.core.cache import TempResultCache
 from fastprocesses.core.config import OGCProcessesSettings
 from fastprocesses.core.exceptions import ResultTooLargeError
 from fastprocesses.core.logging import InterceptHandler, logger
+from fastprocesses.core.redis_connection import RedisConnection
 
 
 settings = OGCProcessesSettings()
@@ -169,17 +170,22 @@ def shutdown_worker_after_task(
                 task_id,
             )
 
+# Shared pool: all three below point at the same results_cache Redis DB, so
+# they share one bounded connection pool instead of each growing its own
+# (separate pools each carry their own never-shrinking large-reply buffers).
+_results_cache_connection = RedisConnection(str(settings.results_cache.connection))
+
 temp_result_cache = TempResultCache(
     key_prefix="process_results",
     ttl_days=settings.FP_RESULTS_TEMP_TTL_HOURS,
-    connection=settings.results_cache.connection,
+    redis_connection=_results_cache_connection,
     max_size_bytes=settings.FP_MAX_RESULT_SIZE_BYTES,
 )
 
 job_status_cache = TempResultCache(
     key_prefix="job_status",
     ttl_days=settings.FP_JOB_STATUS_TTL_DAYS,
-    connection=settings.results_cache.connection,
+    redis_connection=_results_cache_connection,
 )
 
 # Holds per-request output/format preferences (outputs, response mode) keyed
@@ -188,7 +194,7 @@ job_status_cache = TempResultCache(
 job_request_cache = TempResultCache(
     key_prefix="job_request",
     ttl_days=settings.FP_JOB_STATUS_TTL_DAYS,
-    connection=settings.results_cache.connection,
+    redis_connection=_results_cache_connection,
 )
 
 
