@@ -1,7 +1,6 @@
 import typing
 from typing import Any
 
-import orjson
 from fastapi import APIRouter, Header, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 
@@ -381,12 +380,6 @@ def get_router(
         logger.debug(f"Get job result endpoint accessed for job ID: {job_id}")
         try:
             result = process_manager.get_job_result(job_id)
-            try:
-                logger.info(
-                    f"Result size for job {job_id}: {len(orjson.dumps(result))} bytes"
-                )
-            except TypeError:
-                logger.debug(f"Could not measure result size for job {job_id}")
             job_status = process_manager.get_job_status(job_id)
             process_id = job_status.processID
             if process_id is not None:
