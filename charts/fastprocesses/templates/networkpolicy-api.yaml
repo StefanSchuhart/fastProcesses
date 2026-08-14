@@ -1,0 +1,31 @@
+{{- if .Values.networkPolicy.api.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "fastprocesses.fullname" . }}-api
+  labels:
+    {{- include "fastprocesses.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "fastprocesses.selectorLabels" . | nindent 6 }}
+      component: api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- if .Values.networkPolicy.api.allowSameNamespace }}
+        - podSelector: {}
+        {{- end }}
+        {{- range .Values.networkPolicy.api.allowedNamespaces }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . }}
+        {{- end }}
+        {{- with .Values.networkPolicy.api.extraFrom }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.service.targetPort }}
+{{- end }}

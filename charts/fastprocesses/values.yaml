@@ -144,6 +144,20 @@ serviceAccount:
   name: ""
   automount: false
 
+# Restricts ingress to the API Service. Disabled by default — the Service is
+# otherwise reachable from any pod in the cluster via cluster DNS.
+networkPolicy:
+  api:
+    enabled: false
+    # Allow traffic from pods in the same namespace as this release.
+    allowSameNamespace: true
+    # Namespaces allowed to reach the API, matched by the
+    # kubernetes.io/metadata.name label Kubernetes sets automatically.
+    allowedNamespaces: []
+    # Raw NetworkPolicyPeer entries appended as-is (podSelector, ipBlock, etc.)
+    # for cases the above options don't cover.
+    extraFrom: []
+
 resources:
   api:
     limits:
