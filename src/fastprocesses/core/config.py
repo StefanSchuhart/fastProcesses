@@ -133,6 +133,16 @@ class OGCProcessesSettings(BaseSettings):
             "disable."
         ),
     )
+    FP_MAX_READ_SIZE_BYTES: int | None = Field(
+        default=52_428_800,  # 50 MiB
+        description=(
+            "Unconditional ceiling (compressed, in bytes) enforced when reading "
+            "a cached result, independent of FP_MAX_RESULT_SIZE_BYTES. Protects "
+            "against decoding/parsing an oversized value regardless of whether "
+            "it was written under an older/looser limit. Should generally stay "
+            ">= FP_MAX_RESULT_SIZE_BYTES. Set to None to disable."
+        ),
+    )
     FP_SYNC_EXECUTION_TIMEOUT_SECONDS: int = Field(
         default=10,
         description="Timeout in seconds for synchronous execution waiting for result."

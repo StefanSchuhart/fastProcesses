@@ -9,10 +9,11 @@ from fastprocesses.core.exceptions import ResultTooLargeError
 from fastprocesses.core.logging import logger
 from fastprocesses.core.redis_connection import RedisConnection
 
-# Unconditional read-side ceiling, independent of FP_MAX_RESULT_SIZE_BYTES:
-# protects against ever decoding/parsing a value large enough to amplify
-# into hundreds of MB during zlib/orjson decode, regardless of configuration.
-_HARD_READ_CEILING_BYTES = 50 * 1024 * 1024  # 50 MiB
+# Default unconditional read-side ceiling, used when a TempResultCache isn't
+# constructed with an explicit hard_read_ceiling_bytes. Independent of
+# max_size_bytes: protects against ever decoding/parsing a value large enough
+# to amplify into hundreds of MB during zlib/orjson decode.
+_DEFAULT_HARD_READ_CEILING_BYTES = 50 * 1024 * 1024  # 50 MiB
 
 
 class TempResultCache:
@@ -23,6 +24,7 @@ class TempResultCache:
         connection: str | RedisDsn | None = None,
         redis_connection: RedisConnection | None = None,
         max_size_bytes: int | None = None,
+        hard_read_ceiling_bytes: int | None = _DEFAULT_HARD_READ_CEILING_BYTES,
     ):
         if redis_connection is None:
             if connection is None:
@@ -34,6 +36,7 @@ class TempResultCache:
         self._key_prefix = key_prefix
         self._ttl_days = ttl_days
         self._max_size_bytes = max_size_bytes
+        self._hard_read_ceiling_bytes = hard_read_ceiling_bytes
 
     @property
     def _redis(self):
@@ -46,12 +49,17 @@ class TempResultCache:
         size = self.redis_connection._execute_redis_command("strlen", made_key)
         logger.info(f"Cache entry size for key {made_key}: {size} bytes")
 
-        if size and size > _HARD_READ_CEILING_BYTES:
+        if (
+            self._hard_read_ceiling_bytes is not None
+            and size
+            and size > self._hard_read_ceiling_bytes
+        ):
             logger.error(
                 f"Refusing to read oversized cache entry for key {made_key}: "
-                f"{size} bytes exceeds hard ceiling of {_HARD_READ_CEILING_BYTES} bytes"
+                f"{size} bytes exceeds hard ceiling of "
+                f"{self._hard_read_ceiling_bytes} bytes"
             )
-            raise ResultTooLargeError(made_key, size, _HARD_READ_CEILING_BYTES)
+            raise ResultTooLargeError(made_key, size, self._hard_read_ceiling_bytes)
 
         serialized_value = self.redis_connection._execute_redis_command("get", made_key)
 

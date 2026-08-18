@@ -180,6 +180,7 @@ temp_result_cache = TempResultCache(
     ttl_days=settings.FP_RESULTS_TEMP_TTL_HOURS,
     redis_connection=_results_cache_connection,
     max_size_bytes=settings.FP_MAX_RESULT_SIZE_BYTES,
+    hard_read_ceiling_bytes=settings.FP_MAX_READ_SIZE_BYTES,
 )
 
 job_status_cache = TempResultCache(
