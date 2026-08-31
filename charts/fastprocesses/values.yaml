@@ -135,7 +135,8 @@ config:
   logLevel: "INFO"
 
   # Maximum size (compressed, bytes) of a cached process result; null disables the guard.
-  maxResultSizeBytes: 10485760
+  maxResultSizeBytes: 10485760 # 95MB
+  maxReadSizeBytes: 10485760 # 100MB > maxResultSizeBytes
 
   # Skip JSON-Schema input validation on the worker — debugging only, never enable in production.
   skipInputValidation: false
