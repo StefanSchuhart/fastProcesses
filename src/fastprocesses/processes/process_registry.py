@@ -12,7 +12,10 @@ from fastprocesses.core.exceptions import ProcessClassNotFoundError, ProcessRegi
 from fastprocesses.core.logging import logger
 from fastprocesses.core.models import ProcessDescription
 from fastprocesses.core.output_protocol import BaseProcessResult
-from fastprocesses.core.output_schema_resolver import _media_type_from_schema
+from fastprocesses.core.output_schema_resolver import (
+    OGC_FORMAT_HINTS,
+    _media_type_from_schema,
+)
 from fastprocesses.core.redis_connection import RedisConnection
 
 
@@ -60,10 +63,36 @@ def _validate_process_registration(
             continue
 
         branches = schema.oneOf if schema.oneOf else [schema]
-        for branch in branches:
-            media_type = _media_type_from_schema(branch)
-            if media_type is None:
-                continue
+        advertised_media_types = {
+            media_type
+            for media_type in (_media_type_from_schema(branch) for branch in branches)
+            if media_type is not None
+        }
+
+        # 2. Every output_serializers key must correspond to an advertised media
+        # type — catches typos and semantic-hint tokens (e.g.
+        # "geojson-feature-collection") mistakenly used as dict keys instead of
+        # the canonical IANA media type, which would silently be unreachable.
+        for configured_media_type in serializers.get(output_id, {}):
+            if configured_media_type in OGC_FORMAT_HINTS:
+                raise ProcessRegistrationError(
+                    process_id,
+                    f"output '{output_id}' registers output_serializers key "
+                    f"'{configured_media_type}', which is an OGC format hint, "
+                    f"not an IANA media type. Use "
+                    f"'{OGC_FORMAT_HINTS[configured_media_type]}' instead.",
+                )
+            if configured_media_type not in advertised_media_types:
+                raise ProcessRegistrationError(
+                    process_id,
+                    f"output '{output_id}' registers output_serializers entry "
+                    f"'{configured_media_type}', which is not advertised by the "
+                    f"process description. Advertised: "
+                    f"{sorted(advertised_media_types) or 'none'}",
+                )
+
+        # 3. Every advertised media type must have an output_serializers entry
+        for media_type in advertised_media_types:
             available = serializers.get(output_id, {})
             if media_type not in available:
                 raise ProcessRegistrationError(
