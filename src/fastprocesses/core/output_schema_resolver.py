@@ -156,6 +156,11 @@ class OutputSchemaResolver:
                 if isinstance(format_object, dict)
                 else None
             )
+            # Accept OGC semantic format hints (e.g. "geojson-feature-collection")
+            # as aliases for their canonical IANA media type, since the process
+            # description schema itself uses this vocabulary via `format`.
+            if requested_media_type in OGC_FORMAT_HINTS:
+                requested_media_type = OGC_FORMAT_HINTS[requested_media_type]
 
             if requested_media_type:
                 # Client specified a format — validate it is advertised by the process
