@@ -114,6 +114,11 @@ class BaseProcess(ABC):
         The default implementation is a **no-op** that returns *exec_body*
         unchanged, so existing processes are unaffected.
 
+        This is also the supported place for any other transformation of the
+        inputs (dropping invalid features, deriving additional inputs, ...):
+        return a new dict rather than mutating *exec_body*.  ``late_validate``
+        must not be used for this.
+
         Override this in subclasses whose inputs may be supplied as URIs
         instead of inline data.  The worker calls this method *after*
         ``validate_inputs`` so that the process description schema is validated
@@ -146,13 +151,21 @@ class BaseProcess(ABC):
         """
         return exec_body
 
-    def late_validate(self, inputs: Dict[str, Any]) -> bool:
+    def late_validate(self, inputs: Dict[str, Any]) -> bool | None:
         """
         Process-specific validation of **resolved** inputs, called after
         :meth:`resolve_remote_inputs` and before ``execute``.
 
-        The default implementation is a **no-op** that always returns ``True``,
-        so existing processes are unaffected.
+        The default implementation is a **no-op**, so existing processes are
+        unaffected.
+
+        The return value is ignored.  The only way to fail the job is to raise
+        ``ValueError``.
+
+        *inputs* is the live input dict that ``execute`` will receive.  This
+        hook must be side-effect free: mutating *inputs* is unsupported and
+        not guarded against.  Do transformations in
+        :meth:`resolve_remote_inputs` instead.
 
         Override this in subclasses that need to validate data that was
         fetched or transformed by ``resolve_remote_inputs`` — for example,
@@ -169,15 +182,14 @@ class BaseProcess(ABC):
 
             from mypackage.models import BuildingFeatureCollection
 
-            def late_validate(self, inputs: dict) -> bool:
+            def late_validate(self, inputs: dict) -> None:
                 # Validate the fetched collection against a Pydantic model.
                 # model_validate raises ValidationError on structural problems.
                 BuildingFeatureCollection.model_validate(
                     inputs["buildings"]
                 )
-                return True
         """
-        return True
+        return None
 
     def quick_validate_inputs(self, inputs: Dict[str, Any]) -> bool:
         """
