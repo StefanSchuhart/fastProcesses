@@ -103,6 +103,18 @@ class TestOutputSchemaResolver:
         assert resolved["features"].media_type == "application/flatgeobuf"
         assert resolved["features"].is_binary is True
 
+    def test_ogc_semantic_hint_accepted_as_mediatype_alias(self):
+        """Client requesting the OGC format hint token resolves to its IANA type."""
+        description = _make_description({"features": _multi_format_output()})
+        resolver = OutputSchemaResolver(description)
+
+        resolved = resolver.resolve(
+            {"features": {"format": {"mediaType": "geojson-feature-collection"}}}
+        )
+
+        assert resolved["features"].media_type == "application/geo+json"
+        assert resolved["features"].is_binary is False
+
     def test_default_format_uses_priority_order(self):
         """When no format is requested, the highest-priority advertised type is used."""
         description = _make_description({"features": _multi_format_output()})

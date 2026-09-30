@@ -327,8 +327,10 @@ def test_run_scatter_fans_out_and_merges(
             serialized_data=serialized_data,
         )
 
-    # finalize_scatter stored the merged result under the job_id key
-    cached = store["test-job-scatter-1"]
+    # finalize_scatter stores the merged result under celery_key, and a
+    # {"__result_ref__": celery_key} pointer under the job_id key.
+    pointer = store["test-job-scatter-1"]
+    cached = store[pointer["__result_ref__"]]
     assert cached["elevation_m"] == 342.5
     assert cached["land_use"] == "forest"
     assert cached["temperature_c"] == 12.3
@@ -425,6 +427,9 @@ def test_finalize_scatter_merges_and_caches(
     assert merged["elevation_m"] == 342.5
     assert merged["land_use"] == "forest"
     assert merged["temperature_c"] == 12.3
-    assert store.get(job_id) == merged  # stored under job_id
+    # job_id stores a pointer to the celery_key entry, not the payload itself
+    pointer = store.get(job_id)
+    assert isinstance(pointer, dict) and "__result_ref__" in pointer
+    assert store[pointer["__result_ref__"]] == merged
     last_status = mock_update.call_args_list[-1][0][3]
     assert last_status == "successful"

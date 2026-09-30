@@ -53,6 +53,7 @@ def test_calculation_task_outputs_no_serializer_warning():
                 }
             },
             response=ResponseType.RAW,
+            process_id="word_freq",
         )
         task.model_dump(mode="json")
 
@@ -337,10 +338,16 @@ def test_cache_hit_raw_and_document_share_key(eager_celery, process, mem_cache):
     resolve to the same canonical cache key and reuse the same cached result.
     """
     task_raw = CalculationTask(
-        inputs={"text": _TEXT}, outputs=None, response=ResponseType.RAW
+        inputs={"text": _TEXT},
+        outputs=None,
+        response=ResponseType.RAW,
+        process_id="word_freq",
     )
     task_doc = CalculationTask(
-        inputs={"text": _TEXT}, outputs=None, response=ResponseType.DOCUMENT
+        inputs={"text": _TEXT},
+        outputs=None,
+        response=ResponseType.DOCUMENT,
+        process_id="word_freq",
     )
 
     assert task_raw.celery_key == task_doc.celery_key

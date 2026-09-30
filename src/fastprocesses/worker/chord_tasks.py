@@ -6,7 +6,7 @@ from typing import Any, cast
 from celery import chord
 from fastapi.encoders import jsonable_encoder
 
-from fastprocesses.common import celery_app, temp_result_cache
+from fastprocesses.common import cache_computed_result, celery_app, temp_result_cache
 from fastprocesses.core.base_process import (
     BaseParallelProcess,
     BaseScatterProcess,
@@ -14,6 +14,7 @@ from fastprocesses.core.base_process import (
 )
 from fastprocesses.core.logging import logger
 from fastprocesses.core.models import CalculationTask, JobStatusCode
+from fastprocesses.core.exceptions import ResultTooLargeError
 from fastprocesses.processes.process_registry import get_process_registry
 from fastprocesses.worker.job_status import (
     _cleanup_progress_counter,
@@ -163,7 +164,7 @@ def finalize_parallel(
     process_id: str,
     job_id: str,
     meta_key: str,
-) -> dict:
+) -> dict | None:
     """
     Chord callback for ``BaseParallelProcess``.
 
@@ -217,14 +218,27 @@ def finalize_parallel(
 
         try:
             if original_input is not None:
-                calculation_task = CalculationTask(**original_input)
-                temp_result_cache.put(key=calculation_task.celery_key, value=merged)
-            # Also store under job_id so get_job_result can retrieve it when
-            # execute_process returned None (chord-dispatched tasks).
-            temp_result_cache.put(key=job_id, value=merged)
+                calculation_task = CalculationTask(
+                    **original_input, process_id=process_id
+                )
+                # job_id bridges to the celery_key entry: execute_process
+                # returned None for this chord-dispatched job, so Celery's own
+                # result backend never got a result under job_id.
+                cache_computed_result(
+                    temp_result_cache, calculation_task.celery_key, merged, job_id=job_id
+                )
+            else:
+                # No original_input to derive a celery_key from; fall back to
+                # storing the full payload directly under job_id.
+                temp_result_cache.put(key=job_id, value=merged)
             logger.info(
                 f"Cached parallel result for process {process_id} (job {job_id})."
             )
+        except ResultTooLargeError:
+            # Job-fatal: no cached/retrievable result exists otherwise (this
+            # chord-dispatched job's execute_process returned None). Let it
+            # propagate to the outer handler, which marks the job FAILED.
+            raise
         except Exception as cache_err:
             logger.error(
                 f"Failed to cache parallel result for job {job_id}: {cache_err}"
@@ -238,6 +252,17 @@ def finalize_parallel(
             f"Parallel process {process_id} (job {job_id}) completed successfully."
         )
         return merged
+    except ResultTooLargeError as e:
+        update_job_status(
+            job_id, 0, f"Result too large to cache: {e}", JobStatusCode.FAILED
+        )
+        logger.error(
+            "Parallel finalization failed for process {} (job {}): {}",
+            process_id,
+            job_id,
+            e,
+        )
+        raise
     except Exception as e:
         update_job_status(
             job_id, 0, "Parallel merge failed. See server logs.",
@@ -429,13 +454,21 @@ def finalize_scatter(
         merged = merge_result.model_dump(mode="json")
 
         try:
-            calculation_task = CalculationTask(**original_input)
-            temp_result_cache.put(key=calculation_task.celery_key, value=merged)
-            # Also store under job_id so get_job_result can retrieve it.
-            temp_result_cache.put(key=job_id, value=merged)
+            calculation_task = CalculationTask(**original_input, process_id=process_id)
+            # job_id bridges to the celery_key entry: execute_process
+            # returned None for this chord-dispatched job, so Celery's own
+            # result backend never got a result under job_id.
+            cache_computed_result(
+                temp_result_cache, calculation_task.celery_key, merged, job_id=job_id
+            )
             logger.info(
                 f"Cached scatter result for process {process_id} (job {job_id})."
             )
+        except ResultTooLargeError:
+            # Job-fatal: no cached/retrievable result exists otherwise (this
+            # chord-dispatched job's execute_process returned None). Let it
+            # propagate to the outer handler, which marks the job FAILED.
+            raise
         except Exception as cache_err:
             logger.error(
                 f"Failed to cache scatter result for job {job_id}: {cache_err}"
@@ -450,6 +483,17 @@ def finalize_scatter(
             f"Scatter process {process_id} (job {job_id}) completed successfully."
         )
         return merged
+    except ResultTooLargeError as e:
+        update_job_status(
+            job_id, 0, f"Result too large to cache: {e}", JobStatusCode.FAILED
+        )
+        logger.error(
+            "Scatter finalization failed for process {} (job {}): {}",
+            process_id,
+            job_id,
+            e,
+        )
+        raise
     except Exception as e:
         update_job_status(
             job_id, 0, "Scatter merge failed. See server logs.",

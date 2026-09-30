@@ -12,6 +12,7 @@ from celery.result import AsyncResult
 
 from fastprocesses.common import (
     celery_app,
+    job_request_cache,
     job_status_cache,
     settings,
     temp_result_cache,
@@ -309,6 +310,7 @@ class SyncExecutionStrategy(ExecutionStrategy):
             while time.monotonic() < deadline:
                 result = self.process_manager.cache.get(key=task.id)
                 if result is not None:
+                    result = self.process_manager._resolve_result_ref(result)
                     break
                 time.sleep(0.1)
             if result is None:
@@ -365,6 +367,7 @@ class ProcessManager:
         self.process_registry = get_process_registry()
         self.cache = temp_result_cache
         self.job_status_cache = job_status_cache
+        self.job_request_cache = job_request_cache
         self.output_reference_publisher = output_reference_publisher
 
     def get_worker_status(self) -> Dict[str, Any]:
@@ -524,13 +527,16 @@ class ProcessManager:
                     "outputs": data.model_dump(mode="json", include={"outputs"})["outputs"],
                     "response": data.response,
                 }
-                self.job_status_cache.put(f"job_request:{response.jobID}", request_meta)
+                self.job_request_cache.put(response.jobID, request_meta)
             return response
 
         # Sync path: build CalculationTask for cache key and result retrieval.
         # Sync execution is intended for fast/small jobs where this overhead is acceptable.
         calculation_task = CalculationTask(
-            inputs=data.inputs, outputs=data.outputs, response=data.response
+            inputs=data.inputs,
+            outputs=data.outputs,
+            response=data.response,
+            process_id=process_id,
         )
         return SyncExecutionStrategy(self).execute(process_id, calculation_task)
 
@@ -604,11 +610,23 @@ class ProcessManager:
                 task_result = self.cache.get(key=job_id)
                 if task_result is None:
                     raise JobNotReadyError(job_id)
+                task_result = self._resolve_result_ref(task_result)
+                if task_result is None:
+                    raise JobNotReadyError(job_id)
+            elif job_status_val == JobStatusCode.FAILED:
+                message = job_info.get("message") if job_info else None
+                raise JobFailedError(job_id, message or "Job failed. See server logs.")
             else:
                 raise JobNotReadyError(job_id)
 
         # in case of SUCCESS only, get the results directly (non-blocking)
         return task_result
+
+    def _resolve_result_ref(self, value: Any) -> Any:
+        """Follows a {"__result_ref__": celery_key} pointer to its canonical entry."""
+        if isinstance(value, dict) and "__result_ref__" in value:
+            return self.cache.get(key=value["__result_ref__"])
+        return value
 
     def delete_job(self, job_id: str) -> Dict[str, Any]:
         """

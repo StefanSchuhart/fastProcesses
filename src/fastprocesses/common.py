@@ -1,8 +1,10 @@
-import json
 import logging
 import signal
 import sys
+import zlib
+from typing import Any
 
+import orjson
 from celery import Celery
 from celery.signals import worker_ready, worker_shutdown, task_postrun
 from fastapi.encoders import jsonable_encoder
@@ -10,7 +12,9 @@ from kombu.serialization import register
 
 from fastprocesses.core.cache import TempResultCache
 from fastprocesses.core.config import OGCProcessesSettings
+from fastprocesses.core.exceptions import ResultTooLargeError
 from fastprocesses.core.logging import InterceptHandler, logger
+from fastprocesses.core.redis_connection import RedisConnection
 
 
 settings = OGCProcessesSettings()
@@ -39,13 +43,13 @@ def sigint_handler(signum, frame):
     sys.exit(0)
 
 def custom_json_serializer(obj):
-    # Use jsonable_encoder to handle complex objects
-    return json.dumps(jsonable_encoder(obj))
+    # zlib-compressed orjson: cuts both broker payload size and result-backend
+    # storage size (same amplification risk as TempResultCache, see cache.py).
+    return zlib.compress(orjson.dumps(jsonable_encoder(obj)))
 
 
 def custom_json_deserializer(data):
-    # Deserialize JSON back into Python objects
-    return json.loads(data)
+    return orjson.loads(zlib.decompress(data))
 
 # Register the custom serializer
 register(
@@ -53,7 +57,7 @@ register(
     custom_json_serializer,
     custom_json_deserializer,
     content_type="application/x-custom-json",
-    content_encoding="utf-8",
+    content_encoding="binary",
 )
 
 celery_app = Celery(
@@ -166,14 +170,61 @@ def shutdown_worker_after_task(
                 task_id,
             )
 
+# Shared pool: all three below point at the same results_cache Redis DB, so
+# they share one bounded connection pool instead of each growing its own
+# (separate pools each carry their own never-shrinking large-reply buffers).
+_results_cache_connection = RedisConnection(str(settings.results_cache.connection))
+
 temp_result_cache = TempResultCache(
     key_prefix="process_results",
     ttl_days=settings.FP_RESULTS_TEMP_TTL_HOURS,
-    connection=settings.results_cache.connection,
+    redis_connection=_results_cache_connection,
+    max_size_bytes=settings.FP_MAX_RESULT_SIZE_BYTES,
+    hard_read_ceiling_bytes=settings.FP_MAX_READ_SIZE_BYTES,
 )
 
 job_status_cache = TempResultCache(
     key_prefix="job_status",
     ttl_days=settings.FP_JOB_STATUS_TTL_DAYS,
-    connection=settings.results_cache.connection,
+    redis_connection=_results_cache_connection,
 )
+
+# Holds per-request output/format preferences (outputs, response mode) keyed
+# by job_id, so GET /jobs/{job_id}/results can honour them. Distinct from
+# job_status_cache, which holds only JobStatusInfo records.
+job_request_cache = TempResultCache(
+    key_prefix="job_request",
+    ttl_days=settings.FP_JOB_STATUS_TTL_DAYS,
+    redis_connection=_results_cache_connection,
+)
+
+
+def cache_computed_result(
+    cache: TempResultCache, celery_key: str, value: Any, *, job_id: str | None = None
+) -> None:
+    """Writes a computed result to the dedup cache under its celery_key.
+
+    This is the single entry point for caching results, used both by
+    CacheResultTask.on_success (plain BaseProcess) and the finalize_parallel/
+    finalize_scatter chord callbacks, so both paths behave identically.
+
+    `cache` is passed in (rather than using the module-level temp_result_cache
+    directly) so callers keep using their own imported reference — this keeps
+    call sites patchable/mockable in tests the same way they were before.
+
+    job_id must only be passed for chord-dispatched processes: execute_process
+    returns None for those, so Celery's own result backend never gets a
+    result under job_id, and get_job_result needs a pointer to bridge to the
+    celery_key entry. Plain BaseProcess results are retrieved via Celery's
+    AsyncResult(job_id) directly and must not pass job_id here.
+    """
+    try:
+        cache.put(key=celery_key, value=value)
+        if job_id is not None:
+            cache.put(key=job_id, value={"__result_ref__": celery_key})
+    except ResultTooLargeError:
+        # Job-fatal: callers must mark the job FAILED rather than let it
+        # silently succeed with no cached/retrievable result.
+        raise
+    except Exception as e:
+        logger.error(f"Error caching result for key {celery_key}: {e}")

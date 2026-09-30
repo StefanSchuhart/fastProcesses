@@ -124,6 +124,25 @@ class OGCProcessesSettings(BaseSettings):
         default=365,  # 7 days
         description="Time to live for job status in days",
     )
+    FP_MAX_RESULT_SIZE_BYTES: int | None = Field(
+        default=10_485_760,  # 10 MiB
+        description=(
+            "Maximum size (compressed, in bytes) of a cached process result. "
+            "Guards against oversized values overwhelming Dragonfly/Redis' "
+            "per-IO-thread pipeline buffer (default 128 MiB). Set to None to "
+            "disable."
+        ),
+    )
+    FP_MAX_READ_SIZE_BYTES: int | None = Field(
+        default=52_428_800,  # 50 MiB
+        description=(
+            "Unconditional ceiling (compressed, in bytes) enforced when reading "
+            "a cached result, independent of FP_MAX_RESULT_SIZE_BYTES. Protects "
+            "against decoding/parsing an oversized value regardless of whether "
+            "it was written under an older/looser limit. Should generally stay "
+            ">= FP_MAX_RESULT_SIZE_BYTES. Set to None to disable."
+        ),
+    )
     FP_SYNC_EXECUTION_TIMEOUT_SECONDS: int = Field(
         default=10,
         description="Timeout in seconds for synchronous execution waiting for result."
