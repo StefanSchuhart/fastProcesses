@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [0.24]
 
+### [0.24.1] - 2026-09-30
+
+#### Changed
+- `late_validate` should not mutate inputs, but only log and fail
+- changed `late_validate`s return signature to None to accompany correct usage pattern 
+
+
 ### [0.24.0] - 2026-09-30
 #### Added
 - Configurable result size and cache read limits, with a specific error when results exceed the size limit
