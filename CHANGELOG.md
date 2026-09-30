@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 #### Added
 
 #### Changed
+- Documented that `late_validate` must not mutate `inputs` and that its return value is ignored (raise `ValueError` to fail); `resolve_remote_inputs` is the supported place for input transformations
+- `late_validate` return annotation widened to `bool | None`; existing overrides remain compatible
 
 #### Fixed
 
@@ -16,7 +18,116 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - further improve storing jobs and job results in cache using a dedicated object model (eventually using redis_om)
 - implement callback mechanism according to [OGC API Processes requirment class](https://docs.ogc.org/is/18-062r2/18-062r2.html#toc52)
 
+## [0.24]
+
+### [0.24.0] - 2026-09-30
+#### Added
+- Configurable result size and cache read limits, with a specific error when results exceed the size limit
+- Optional API network policy and new cache settings in the Helm chart
+#### Changed
+- Unified job result caching and separated job request caching; duplicate results are stored once and referenced by pointer
+- Compressed cached results with `orjson` to reduce storage, and reused Redis connections per temporary result cache instance
+- Process registry lookups now use the Celery broker; result cache hashes include the process ID to isolate processes
+- Reduced memory use while reading and parsing large cached results
+#### Fixed
+- Failed chord jobs no longer appear as jobs that are merely not ready
+- Output format registration validates both directions against the process description and resolves OGC format hints
+- Corrected JSON-like string construction and removed unnecessary expansion of results for size logging
+
+## [0.23]
+
+### [0.23.3] - 2026-07-29
+#### Added
+- Local process store alongside Redis for process registration
+#### Changed
+- Default result cache database is now 1
+#### Fixed
+- Celery result expiry now converts configured days to seconds correctly
+
+### [0.23.2] - 2026-07-29
+#### Fixed
+- Startup no longer crashes when Redis is unavailable
+
+### [0.23.1] - 2026-07-24
+#### Added
+- Multipart output responses
+
+### [0.23.0] - 2026-07-17
+#### Added
+- Reference output transmission (`transmissionMode: reference`) and an example of resolving references
+- Missing conformance class declaration
+#### Fixed
+- Location headers now use an absolute base URL
+- Exceptions raised by process implementations are reported to users without leaking unpicklable errors into Celery
+
+## [0.22]
+
+### [0.22.6] - 2026-06-30
+#### Added
+- Option to skip input validation when debugging large datasets
+
+### [0.22.5] - 2026-06-30
+#### Added
+- Worker status messages
+#### Fixed
+- Errors in chord subtasks no longer prevent finalization or hide the traceback
+
+### [0.22.4] - 2026-06-30
+#### Fixed
+- Persist the outputs requested in the original execution request
+
+### [0.22.3] - 2026-06-30
+#### Fixed
+- `BaseParallelProcess` retains access to the original execution body
+- Corrected task output calculation and defaulted to native JSON when the schema omits a media type
+
+### [0.22.2] - 2026-06-30
+#### Added
+- Allowed input origins configuration
+#### Fixed
+- `merge_results` can access resolved input data
+- Corrected password environment variable handling
+
+### [0.22.1] - 2026-06-23
+#### Changed
+- `resolve_remote_inputs` now receives a job progress callback; improved job progress messages
+- Removed deprecated `mode: async` request body option
+
+### [0.22.0] - 2026-06-18
+#### Added
+- Output format resolution and serialization helpers for simple, parallel, and scatter processes
+- `BaseProcessResult` for process outputs, with result validation and registration errors
+#### Changed
+- Output handling now builds responses from resolved formats and schemas
+- Synchronous execution polls the result cache during its remaining response window
+#### Fixed
+- Null values no longer cause schema validation errors
+- Job status includes the expected information when results come from cache
+- Corrected cache key consistency and output serialization issues
+
+## [0.21]
+
+### [0.21.1] - 2026-05-26
+#### Fixed
+- Cache lookups now run for `BaseScatterProcess` and `BaseParallelProcess`
+
+### [0.21.0] - 2026-05-22
+#### Added
+- Separate Celery broker connection configuration
+#### Changed
+- Store large worker data separately to reduce memory consumption
+
 ## [0.20]
+
+### [0.20.3] - 2026-05-22
+#### Changed
+- Version bump only
+
+### [0.20.2] - 2026-05-22
+#### Changed
+- Reduced worker polling interval and gossip in job mode
+#### Fixed
+- Tasks are picked up again when a worker dies
 
 ### [0.20.1] - 2026-05-21
 #### Changed
